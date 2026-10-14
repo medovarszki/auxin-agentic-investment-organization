@@ -1,0 +1,32 @@
+# Szervezeti ábra: egységek -> pozíciók -> agentek. Részletek: docs/ORG.md
+version: 1
+organization: auxin
+units:
+  - id: core
+    name: Core befektetési egység
+    status: active
+    positions:
+      - id: market-sentiment
+        agent: agents/market-sentiment
+        reports_to: portfolio-manager
+      - id: research
+        agent: agents/research
+        reports_to: portfolio-manager
+        also_acts_as: [verifier]
+      - id: portfolio-manager
+        agent: agents/portfolio-manager
+        reports_to: human
+      - id: execution
+        agent: agents/execution
+        reports_to: portfolio-manager
+  - {id: risk, name: Risk, status: planned, positions: []}
+  - {id: compliance, name: Compliance, status: planned, positions: []}
+  - {id: operations, name: Operations, status: planned, positions: []}
+  - {id: reporting, name: Reporting, status: planned, positions: []}
+
+rules:
+  portfolio: org/rules/portfolio-rules.yaml
+
+human:
+  role: approver
+  approves: [order, skill_change, rule_change, prompt_change]

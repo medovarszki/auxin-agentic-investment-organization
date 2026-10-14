@@ -1,0 +1,16 @@
+# Vázlat (1. fázis). Modell-ID, egress és limitek a 2. és 4. fázisban véglegesek.
+name: execution
+unit: core
+role: Jóváhagyott megbízások végrehajtása az ibkrfacade-en át; ár nélkül visszadob.
+model: claude-opus-5-5
+skills: [order-execution]
+tools:
+  allow: [mcp__ibkr__get_contract, mcp__ibkr__get_price, mcp__ibkr__place_order, mcp__ibkr__get_orders]
+mcp_servers: [ibkr]
+bus:
+  consumes: [order]
+  produces: [fill, order_reject]
+permissions: {ibkr: read_write, knowledge_base: none}
+egress: []
+limits: {max_concurrent_tasks: 1, max_turns: 20}
+budget: {daily_usd: 5}

@@ -1,9 +1,5 @@
-# Research / Analyst agent
+# Research / Analyst agent (egyben verifier)
 
-Megtámadja az ötleteket, fundamentális, ellátási lánc, partner- és iparági elemzést végez; buy / sell / pass javaslat célárral. Cégenkénti memóriát vezet (események, árhatás) a központi tudásbázisban, és a Portfolio Manager kérésére újraértékeli a nyitott pozíciókat.
+Megtámadja az ötleteket, fundamentális, ellátási lánc, partner- és iparági elemzést végez; buy / pass javaslat célárral. Cégenkénti memóriát vezet (események, árhatás) a központi tudásbázisban, a PM kérésére újraértékeli a nyitott pozíciókat, és verifierként leadás előtt ellenőrzi a megbízás-tervezeteket.
 
-Tervezett skillek *(1. fázisban véglegesítjük)*:
-- `idea-challenge`
-- `fundamental-analysis`
-- `supply-chain-and-peers`
-- `company-memory`
+Leíró: [`agent.yaml`](agent.yaml). Szerepleírás: [`docs/ORG.md`](../../docs/ORG.md#research--analyst-egyben-a-verifier).

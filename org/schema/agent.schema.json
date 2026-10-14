@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://auxin/agent.schema.json",
+  "title": "Auxin agent descriptor (agent.yaml)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "unit", "role", "model", "skills", "tools", "bus", "permissions", "limits", "budget"],
+  "properties": {
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+    "unit": {"type": "string"},
+    "role": {"type": "string", "description": "Rövid szerepleírás; a részletes prompt a CLAUDE.md-ben"},
+    "also_acts_as": {"type": "array", "items": {"type": "string"}},
+    "model": {"type": "string", "description": "Modell-ID; a 2. fázisban rögzítve"},
+    "skills": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}},
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allow"],
+      "properties": {
+        "allow": {"type": "array", "items": {"type": "string"}, "description": "Beépített és MCP toolok allowlistje (mcp__<server>__<tool>)"}
+      }
+    },
+    "mcp_servers": {"type": "array", "items": {"type": "string"}},
+    "bus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["consumes", "produces"],
+      "properties": {
+        "consumes": {"type": "array", "items": {"type": "string"}, "description": "Fogadott üzenettípusok (munkanevek, 3. fázis)"},
+        "produces": {"type": "array", "items": {"type": "string"}, "description": "Küldött üzenettípusok"}
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ibkr", "knowledge_base"],
+      "properties": {
+        "ibkr": {"enum": ["none", "read", "read_write"]},
+        "knowledge_base": {"enum": ["none", "read", "read_write"]}
+      }
+    },
+    "egress": {"type": "array", "items": {"type": "string"}, "description": "Kimenő hálózati allowlist (host:port); a 4. fázisban töltjük ki"},
+    "schedule": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "cron"],
+        "properties": {"name": {"type": "string"}, "cron": {"type": "string"}}
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_concurrent_tasks", "max_turns"],
+      "properties": {
+        "max_concurrent_tasks": {"type": "integer", "minimum": 1},
+        "max_turns": {"type": "integer", "minimum": 1},
+        "cpus": {"type": "number"},
+        "memory": {"type": "string"}
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["daily_usd"],
+      "properties": {"daily_usd": {"type": "number", "exclusiveMinimum": 0}}
+    }
+  }
+}

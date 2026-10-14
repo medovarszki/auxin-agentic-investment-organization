@@ -8,9 +8,10 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 
 | Fázis | Állapot |
 |---|---|
-| 0. Felderítés és célok | részben kész (repó-felderítés, monorepo-váz); a domain-kérdések egy része nyitott |
-| 1. Szervezeti terv | következik |
-| 2–9. | nincs elkezdve |
+| 0. Felderítés és célok | kész (repó-felderítés, monorepo-váz) |
+| 1. Szervezeti terv | kész: `docs/ORG.md`, `org/org.yaml`, `org/rules/portfolio-rules.yaml`, `org/schema/agent.schema.json`, 4 `agent.yaml`, `scripts/validate_org.py` |
+| 2. Technológiai és adatdöntések | következik |
+| 3–9. | nincs elkezdve |
 
 ## Döntési napló
 
@@ -26,6 +27,15 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-14 | Skillek build-időben az image-be sütve; közös `_base` image + vékony agentenkénti Dockerfile | Immutable, auditálható image; biztonsági alapértékek egy helyen |
 | 2026-10-14 | Nyelv: Python + `uv` workspace (verziók a 2. fázisban, webkereséssel ellenőrizve) | Agent SDK Python, IBKR- és adatkönyvtárak |
 | 2026-10-14 | Git: közvetlenül `main`-re dolgozunk, nincs külön branch | Mihály kérése |
+| 2026-10-14 | GitHubra egyelőre nem pusholunk; a helyi `main` mentése a projektmappában: `auxin/auxin-main.bundle` (fázisonként frissítve) | Mihály kérése; a cloud container ideiglenes |
+| 2026-10-14 | 4 agent: Market & Sentiment, Research (egyben verifier), Portfolio Manager, Execution (LLM-agent) | Mihály döntése; a verifier szerep a Research része |
+| 2026-10-14 | Minden agent Opus 5.5 | Mihály döntése; minőség a költség előtt |
+| 2026-10-14 | Univerzum: globális részvények és ETF-ek, long only | Mihály döntése |
+| 2026-10-14 | PM-szabályok külön fájlban: egyértelmű instrumentum (conid + tőzsde + deviza), ≥ 15% hozampotenciál, új pozíció ≤ 10% NAV, GICS-szektor ≤ 25% NAV (ideiglenes) | Mihály döntése; a szektorszabály felülvizsgálandó |
+| 2026-10-14 | Legfeljebb 2 visszadobási kör tételenként; emberi jóváhagyás minden megbízás előtt | Mihály megerősítette |
+| 2026-10-14 | Execution az ibkrfacade-et használja (`medovarszki/ibkrfacade`, Spring Boot REST a TWS API fölött, IB Gateway) az `mcp-servers/ibkr`-en át | Mihály döntése; a REST-nek nincs auth-ja, ezért csak belső hálózat |
+| 2026-10-14 | Execution visszadobja a megbízást, ha nincs árinformáció | Mihály döntése |
+| 2026-10-14 | Feedback loop: `decision-evaluator` service (nem LLM) számol, a Research írja a tanulságot | Determinisztikus mérés, LLM csak az értelmezésre |
 
 ## Feltételezések (megerősítésre várnak)
 
@@ -38,9 +48,13 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 
 - Melyik piac és eszközosztály (US részvény, EU, ETF)?
 - Sikerkritérium (benchmarkhoz mért teljesítmény, döntések indokolhatósága)?
-- Külön agent-e az Execution, kell-e független verifier?
-- Diverzifikációs és kockázati szabályok (később specifikálva).
+- A szektorszabály felülvizsgálata (jelenleg ideiglenes).
+- ibkrfacade: hiányzik a számlaösszesítő végpont (NAV, cash, margin); a 4. fázisban pótolni kell.
+- GICS-besorolás adatforrása (2. fázis).
+- A verifier a Research része, így a saját javaslatát nem független szem ellenőrzi; később a risk egységbe költöztethető.
 
 ## Következő lépés
 
-1. fázis: szervezeti terv (`docs/ORG.md`, `org/org.yaml`, agent-leírók sémája).
+2. fázis: technológiai és adatdöntések (Agent SDK vs headless Claude Code, task store, ütemező, Redis Streams, adatforrások, IBKR-integráció részletei, verziók webkereséssel ellenőrizve).
+
+Ellenőrzés: `python3 scripts/validate_org.py` (PyYAML, jsonschema).

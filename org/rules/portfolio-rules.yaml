@@ -1,0 +1,43 @@
+# Portfólió-szabályok – a Portfolio Manager kapuja ezeket alkalmazza.
+# A szabályok determinisztikusan ellenőrizhetők (rule-check), az agent nem írhatja felül őket.
+# Módosítás csak Mihály jóváhagyásával. Felülvizsgálat: a szektorszabály ideiglenes.
+version: 1
+effective_from: 2026-10-14
+
+universe:
+  asset_classes: [stock, etf]
+  regions: global
+  long_only: true            # nincs short; az eladás csak csökkentés vagy zárás
+
+instrument:
+  # Egyértelmű azonosítás: mindegyik kötelező, az ISIN ha elérhető
+  required_fields: [ibkr_conid, symbol, exchange, currency]
+  optional_fields: [isin]
+  require_market_price: true   # Execution visszadobja, ha nincs árinformáció
+
+entry:
+  min_upside_pct: 15.0
+  # upside = (target_price - market_price) / market_price * 100
+  # market_price: az aktuális piaci ár a PM döntésének pillanatában, a célárral azonos devizában
+
+position:
+  max_new_position_weight_pct: 10.0
+  # weight = position_market_value / NAV * 100, a megbízás teljesülése utáni becsült állapotra
+
+sector:
+  classification: GICS_sector
+  max_sector_weight_pct: 25.0
+  # Egy új pozíció vagy növelés nem viheti a szektor összsúlyát a limit fölé.
+  etf_treatment:
+    sector_etf: counts_to_sector          # pl. technológiai szektor-ETF -> Information Technology
+    broad_etf: diversified                # széles piaci / több szektoros ETF
+  diversified_bucket:
+    sector_limit_applies: false
+    position_limit_applies: true          # a 10%-os pozíciólimit rájuk is érvényes
+  review_note: "Ideiglenes szabály, később felülvizsgálandó."
+
+rejections:
+  max_rounds_per_item: 2       # utána az ötlet / javaslat failed
+
+approvals:
+  human_approval_before_every_order: true

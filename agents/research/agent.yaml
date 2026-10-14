@@ -1,0 +1,24 @@
+# Vázlat (1. fázis). Modell-ID, egress és limitek a 2. és 4. fázisban véglegesek.
+name: research
+unit: core
+role: Ötlet-kritika és research, cégmemória, pozíció-újraértékelés; verifier szerep (megbízás-ellenőrzés).
+also_acts_as: [verifier]
+model: claude-opus-5-5
+skills:
+  - idea-challenge
+  - fundamental-analysis
+  - supply-chain-and-peers
+  - company-memory
+  - position-review
+  - order-verification
+  - lesson-writing
+tools:
+  allow: [mcp__fundamentals__*, mcp__news__*, mcp__market-data__*, mcp__knowledge-base__*]
+mcp_servers: [fundamentals, news, market-data, knowledge-base]
+bus:
+  consumes: [idea, review_request, verify_request, decision_outcome]
+  produces: [proposal, idea_reject, review_result, verify_result, lesson]
+permissions: {ibkr: none, knowledge_base: read_write}
+egress: []
+limits: {max_concurrent_tasks: 2, max_turns: 80}
+budget: {daily_usd: 30}

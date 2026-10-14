@@ -9,7 +9,7 @@ Egy virtuális befektetési alapkezelő, amelyet Claude-alapú agentek modellezn
 | Könyvtár | Mi van benne |
 |---|---|
 | `org/` | A szervezet deklaratív leírása (`org.yaml`) és az agent-leírók sémája |
-| `agents/` | 1 könyvtár = 1 agent = 1 container: `agent.yaml`, `CLAUDE.md`, saját `skills/`, `Dockerfile`, tesztek |
+| `agents/` | 4 agent (market-sentiment, research, portfolio-manager, execution); 1 könyvtár = 1 agent = 1 container: `agent.yaml`, `CLAUDE.md`, saját `skills/`, `Dockerfile`, tesztek |
 | `libs/` | Importált Python kód (sémák, bus-kliens, store, agent runtime); önállóan nem fut |
 | `mcp-servers/` | Saját MCP szerverek: adatforrások, tudásbázis, IBKR |
 | `services/` | Futó, nem-agent containerek: scheduler, portfolio-sync, bus-archiver, approval-gateway, mock-broker, dashboard |

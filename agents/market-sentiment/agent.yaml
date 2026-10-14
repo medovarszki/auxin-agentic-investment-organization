@@ -1,0 +1,18 @@
+# Vázlat (1. fázis). Modell-ID, egress és limitek a 2. és 4. fázisban véglegesek.
+name: market-sentiment
+unit: core
+role: Napi piaci összkép, sentiment és narratíva; befektetési ötletek generálása.
+model: claude-opus-5-5
+skills: [market-scan, narrative-and-sentiment, idea-generation]
+tools:
+  allow: [mcp__market-data__*, mcp__news__*, mcp__knowledge-base__search]
+mcp_servers: [market-data, news, knowledge-base]
+bus:
+  consumes: [scan_trigger, idea_reject]
+  produces: [market_view, idea]
+permissions: {ibkr: none, knowledge_base: read}
+egress: []
+schedule:
+  - {name: daily-market-scan, cron: "0 6 * * 1-5"}
+limits: {max_concurrent_tasks: 1, max_turns: 40}
+budget: {daily_usd: 10}
