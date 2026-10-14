@@ -41,4 +41,11 @@ rejections:
   max_rounds_per_item: 2       # utána az ötlet / javaslat failed
 
 approvals:
-  human_approval_before_every_order: true
+  # Tech demo, csak paper számla: nincs emberi jóváhagyás (Mihály, 2026-10-14). Élő számlánál újra true.
+  human_approval_before_every_order: false
+  paper_account_only: true
+
+orders:
+  default_type: MKT
+  task_timeout_minutes: 10
+  automatic_retry: false

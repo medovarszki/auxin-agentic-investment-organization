@@ -10,7 +10,7 @@ tools:
 mcp_servers: [ibkr, knowledge-base]
 messages:
   consumes: [proposal, review_result, verify_result, fill, order_reject, review_trigger]
-  produces: [proposal_reject, order_draft, verify_request, review_request, approval_request]
+  produces: [proposal_reject, order_draft, verify_request, order, review_request]
 permissions: {ibkr: read, knowledge_base: read}
 egress: []
 schedule:

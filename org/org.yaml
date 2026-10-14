@@ -29,4 +29,5 @@ rules:
 
 human:
   role: approver
-  approves: [order, skill_change, rule_change, prompt_change]
+  # Tech demo, paper számla: megbízáshoz nem kell emberi jóváhagyás (élő számlánál újra kötelező)
+  approves: [skill_change, rule_change, prompt_change]

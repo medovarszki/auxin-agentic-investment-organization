@@ -29,21 +29,21 @@ Minden agent modellje **Opus 5.5** (a pontos modell-ID a 2. fázisban rögzül).
   1. Ötlet-kritika és háttér-research: pénzügyek, kapcsolódó cégek, ellátási lánc és partnerkockázat, iparág, a cég helye az iparágban. Kimenet: `proposal` (buy / pass) vagy indokolt elutasítás.
   2. Cégenkénti memória: események időbélyeggel és árhatással a tudásbázisban; tanulságok a feedback loopból.
   3. Pozíció-újraértékelés a PM kérésére: indokolt-e a súly → `review_result` (hold / reduce / close).
-  4. **Verifier szerep:** minden megbízás-tervezetet leadás előtt ellenőriz, hogy egyezik-e a jóváhagyott döntéssel (instrumentum, irány, mennyiség, limitár), és a saját javaslatain egy kötelező ellenőrző listát futtat (források elérhetők és datáltak, számok konzisztensek, hozampotenciál helyesen számolt).
+  4. **Verifier szerep:** minden megbízás-tervezetet leadás előtt ellenőriz, hogy egyezik-e a PM döntésével és a Research javaslatával (instrumentum, irány, mennyiség), és a saját javaslatain egy kötelező ellenőrző listát futtat (források elérhetők és datáltak, számok konzisztensek, hozampotenciál helyesen számolt).
 - **Bemenet:** `idea`, `review_request`, `verify_request`, `decision_outcome`; ibkr (ár, hírek, contract-adatok) és knowledge-base MCP, szerver-oldali webkeresés.
 - **Kimenet:** `proposal`, `idea_reject`, `review_result`, `verify_result`, `lesson`.
 - **Skillek:** `idea-challenge`, `fundamental-analysis`, `supply-chain-and-peers`, `company-memory`, `position-review`, `order-verification`, `lesson-writing`.
-- **Megjegyzés (kockázat):** mivel a verifier a Research része, a saját javaslatát nem független szem ellenőrzi. A függetlenséget a PM szabálykapuja (determinisztikus szabályfájl) és az emberi jóváhagyás adja. Ha a risk egység elkészül, a verifier szerep oda átköltöztethető.
+- **Megjegyzés (kockázat):** mivel a verifier a Research része, a saját javaslatát nem független szem ellenőrzi. A függetlenséget a PM szabálykapuja (determinisztikus szabályfájl) adja; emberi kapu a tech demóban nincs. Ha a risk egység elkészül, a verifier szerep oda átköltöztethető.
 
 ### Portfolio Manager
 - **Felelősség:** portfóliókapu: a javaslat megfelel-e a [szabályoknak](../org/rules/portfolio-rules.yaml), pozícióméret, megbízás-tervezet. Időzített (heti) review: minden nyitott pozícióra `review_request` a Researchnek, a válasz alapján tart / csökkent / zár.
 - **Bemenet:** `proposal`, `review_result`, `verify_result`, `fill`; ibkr MCP (csak olvasó toolok), portfólió-tükör.
-- **Kimenet:** `proposal_reject`, `order_draft`, `review_request`, `approval_request`.
+- **Kimenet:** `proposal_reject`, `order_draft` (`verify_request`), `order`, `review_request`.
 - **Skillek:** `rule-check`, `position-sizing`, `portfolio-review`.
 
 ### Execution
-- **Felelősség:** kizárólag jóváhagyott (verifikált és emberileg jóváhagyott) megbízások végrehajtása az ibkrfacade-en át, és a teljesülés visszajelzése. **Visszadobja a megbízást, ha az instrumentumra nincs árinformáció**, vagy ha a megbízás nem egyezik a jóváhagyottal.
-- **Bemenet:** `order` (jóváhagyott); ibkr MCP (író és olvasó toolok).
+- **Felelősség:** kizárólag verifikált megbízások (market order) végrehajtása az ibkrfacade-en át, és a teljesülés visszajelzése. **Visszadobja a megbízást, ha az instrumentumra nincs árinformáció**, vagy ha a megbízás nem egyezik a jóváhagyottal.
+- **Bemenet:** `order` (verifikált); ibkr MCP (író és olvasó toolok).
 - **Kimenet:** `fill`, `order_reject`.
 - **Skillek:** `order-execution`.
 - Az egyetlen agent IBKR írási joggal.
@@ -54,11 +54,8 @@ Minden agent modellje **Opus 5.5** (a pontos modell-ID a 2. fázisban rögzül).
 ```
 scheduler ─► Market & Sentiment ─idea─► Research ─proposal─► Portfolio Manager
                                           │ (idea_reject)        │ (proposal_reject)
-                                          ▼                      ▼ order_draft
-                                                         Research (verify) ─verify_result─► PM
-                                                                                     │ approval_request
-                                                                                     ▼
-                                                                         ember (approval-gateway)
+                                                                 ▼ order_draft (verify_request)
+                                                        Research (verify) ─verify_result─► PM
                                                                                      │ order
                                                                                      ▼
                                                                           Execution ─► ibkrfacade
@@ -68,7 +65,7 @@ scheduler ─► Market & Sentiment ─idea─► Research ─proposal─► Por
 ```
 
 ### 2. Felülvizsgálat és eladás
-Heti scheduler trigger (vagy jelentős hír) → PM: minden nyitott pozícióra `review_request` → Research: `review_result` (hold / reduce / close, indoklással) → PM dönt → reduce / close esetén `order_draft` → Research verify → emberi jóváhagyás → Execution. Short nincs: az eladás csak csökkentés vagy zárás.
+Heti scheduler trigger (vagy jelentős hír) → PM: minden nyitott pozícióra `review_request` → Research: `review_result` (hold / reduce / close, indoklással) → PM dönt → reduce / close esetén `order_draft` → Research verify → Execution. Short nincs: az eladás csak csökkentés vagy zárás.
 
 ### 3. Feedback loop
 A `decision-evaluator` service (determinisztikus, nem LLM) időzítetten kiértékeli a döntéseket: realizált és nem realizált P&L, hozam benchmarkhoz képest, elérte-e a célárat a horizonton belül, kockázattal korrigált hozam. Az eredményt `decision_outcome` üzenetben küldi a döntést hozó agentnek (Research), aki tanulságot ír a tudásbázisba (`lesson`). A tanulság automatikusan bővítheti a memóriát; skill-, szabály- vagy promptmódosítást csak **javasolhat**, azt Mihály hagyja jóvá.
@@ -78,14 +75,13 @@ A `decision-evaluator` service (determinisztikus, nem LLM) időzítetten kiért�
 | Ki | Kit dobhat vissza | Mi alapján |
 |---|---|---|
 | Research | Market & Sentiment ötletét | gyenge tézis, hiányzó adat, nem éri el a 15%-os hozampotenciált |
-| Research (verifier) | PM megbízás-tervezetét | nem egyezik a jóváhagyott döntéssel |
+| Research (verifier) | PM megbízás-tervezetét | nem egyezik a PM döntésével és a javaslattal |
 | Portfolio Manager | Research javaslatát | [portfolio-rules.yaml](../org/rules/portfolio-rules.yaml) |
-| Execution | jóváhagyott megbízást | nincs árinformáció, vagy eltér a jóváhagyottól |
-| Ember | bármely megbízást | saját döntés |
+| Execution | megbízást | nincs árinformáció, eltér a verifikálttól, vagy nem paper számla |
 
 - Minden visszadobás indoklással történik, és a döntési naplóba kerül.
 - **Legfeljebb 2 visszadobási kör** ugyanarra a tételre; utána a tétel `failed`, és nem kerül újra sorra, amíg új információ nem jön.
-- **Minden megbízás előtt kötelező emberi jóváhagyás**, paper számlán is.
+- **Nincs emberi jóváhagyás** (tech demo, csak paper számla; Mihály jóváhagyott eltérése). Védelem: az Execution csak `DU`-val kezdődő (paper) számlán ad le megbízást, az ibkrfacade `IBKR_ALLOW_LIVE=false`. Élő számlánál az emberi jóváhagyás újra kötelező. Részletek: [TASK_MODEL.md](TASK_MODEL.md).
 
 ## Jogosultságok összefoglalója
 
@@ -93,8 +89,8 @@ A `decision-evaluator` service (determinisztikus, nem LLM) időzítetten kiért�
 |---|---|---|---|
 | Market & Sentiment | csak piaci adat (ár, historikus, hírek) | olvas | Research |
 | Research | csak piaci adat és contract | ír / olvas | Portfolio Manager, Market & Sentiment |
-| Portfolio Manager | csak olvas (pozíciók, ár, számla) | olvas | Research, approval-gateway |
-| Execution | ír / olvas | nincs | Portfolio Manager |
+| Portfolio Manager | csak olvas (pozíciók, ár, számla) | olvas | Research, Execution |
+| Execution | ír / olvas | nincs | Portfolio Manager (válasz) |
 
 Az agentek A2A 1.0-n kommunikálnak (ADR 0001); a közös Postgres task store és az OTel trace-ek adják az auditot. Az üzenetsémák a 3. fázisban, az A2A-réteg az 5. fázisban rögzül; a fenti üzenettípus-nevek munkanevek.
 

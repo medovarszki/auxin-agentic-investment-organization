@@ -12,7 +12,7 @@ Egy virtuális befektetési alapkezelő, amelyet Claude-alapú agentek modellezn
 | `agents/` | 4 agent (market-sentiment, research, portfolio-manager, execution); 1 könyvtár = 1 agent = 1 container: `agent.yaml`, `CLAUDE.md`, saját `skills/`, `Dockerfile`, tesztek |
 | `libs/` | Importált Python kód (sémák, A2A-réteg, store, agent runtime); önállóan nem fut |
 | `mcp-servers/` | Saját MCP szerverek: adatforrások, tudásbázis, IBKR |
-| `services/` | Futó, nem-agent containerek: scheduler, portfolio-sync, decision-evaluator, approval-gateway, ibkrfacade, mock-broker, dashboard |
+| `services/` | Futó, nem-agent containerek: scheduler, portfolio-sync, decision-evaluator, ibkrfacade, mock-broker, dashboard |
 | `infra/` | Compose, Postgres, OTel collector, egress allowlist konfiguráció |
 | `tests/` | Végponttól végpontig futó füsttesztek |
 | `docs/` | Haladási napló, szervezeti terv, ADR-ek, runbook |

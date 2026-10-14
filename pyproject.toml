@@ -1,0 +1,21 @@
+[project]
+name = "auxin"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = ["auxin-schemas"]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+auxin-schemas = { workspace = true }
+
+[tool.uv.workspace]
+members = ["libs/*"]
+
+[dependency-groups]
+dev = ["pytest==9.1.1", "pyyaml==6.0.3", "jsonschema==4.26.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["libs"]
+addopts = "--import-mode=importlib"

@@ -12,11 +12,10 @@ import jsonschema
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-# Message types produced outside the agents (services, the human approver).
+# Message types produced outside the agents (services).
 EXTERNAL_PRODUCERS = {
     "scan_trigger": "scheduler",
     "review_trigger": "scheduler",
-    "order": "approval-gateway",
     "decision_outcome": "decision-evaluator",
 }
 
