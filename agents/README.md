@@ -7,8 +7,8 @@ agents/<név>/
 ├── agent.yaml    # leíró: szerep, modell, skillek, tool-allowlist, MCP-k, üzenettípusok, egress, limitek, ütemezés, költségplafon
 ├── CLAUDE.md     # szerep / rendszerprompt
 ├── skills/       # az agent saját skilljei: skills/<skill>/SKILL.md
-├── Dockerfile    # FROM _base + saját skillek és függőségek
+├── Dockerfile    # FROM auxin-agent-base + saját fájlok és függőségek
 └── tests/
 ```
 
-`_base/` a közös base image (non-root user, runtime, OTel). Közös skill-könyvtár csak akkor lesz, ha tényleg megjelenik közös skill.
+`agents/Dockerfile` a közös base image (`auxin-agent-base`): Python, pinelt függőségek, `libs/`, non-root user, healthcheck. Nem fut önállóan, az agent image-ek épülnek rá. Közös skill-könyvtár csak akkor lesz, ha tényleg megjelenik közös skill.
