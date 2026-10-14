@@ -64,7 +64,10 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["daily_usd"],
-      "properties": {"daily_usd": {"type": "number", "exclusiveMinimum": 0}}
+      "properties": {
+        "daily_usd": {"type": "number", "exclusiveMinimum": 0},
+        "per_run_usd": {"type": "number", "exclusiveMinimum": 0}
+      }
     }
   }
 }

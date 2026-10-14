@@ -79,3 +79,26 @@ def test_reduce_requires_target_weight():
 def test_paper_account_check():
     assert is_paper_account("DU1234567")
     assert not is_paper_account("U1234567")
+
+
+def test_market_scan_result_accepts_unresolved_instrument():
+    from auxin_schemas.domain import Idea, InstrumentRef, MarketScanResult, MarketView
+
+    result = MarketScanResult(
+        market_view=MarketView(
+            summary="Risk appetite returns as rates ease",
+            sentiment="risk_on",
+            dominant_narratives=["rate cuts", "AI capex"],
+            sources=SOURCES[:1],
+        ),
+        ideas=[
+            Idea(
+                instrument=InstrumentRef(symbol="ASML", name="ASML Holding", asset_class="stock"),
+                thesis="Lithography demand recovers",
+                rationale="Order intake up",
+                sources=SOURCES[:1],
+            )
+        ],
+    )
+    assert result.ideas[0].instrument.conid is None
+    assert MarketScanResult.model_json_schema()["required"] == ["market_view", "ideas"]

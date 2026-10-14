@@ -1,0 +1,44 @@
+# Walking skeleton (phase 4): one agent behind the egress proxy.
+# Run from the repo root: make up / make scan (see Makefile).
+name: auxin
+
+networks:
+  agents:
+    internal: true        # no route to the internet
+  egress: {}
+
+x-agent-hardening: &agent-hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 256
+  tmpfs:
+    - /tmp:size=64m
+    - /home/agent:size=128m,uid=10001,gid=10001
+  networks: [agents]
+  depends_on: [egress-proxy]
+  restart: "no"
+
+services:
+  egress-proxy:
+    image: ubuntu/squid:6.6-24.04_edge
+    volumes:
+      - ../egress/squid.conf:/etc/squid/squid.conf:ro
+      - ../egress/allowlist.txt:/etc/squid/allowlist.txt:ro
+    networks: [agents, egress]
+    cpus: 0.5
+    mem_limit: 256m
+
+  market-sentiment:
+    <<: *agent-hardening
+    build:
+      context: ../..
+      dockerfile: agents/market-sentiment/Dockerfile
+    image: auxin-market-sentiment
+    env_file: ../../.env
+    environment:
+      HTTPS_PROXY: http://egress-proxy:3128
+      HTTP_PROXY: http://egress-proxy:3128
+      NO_PROXY: localhost,127.0.0.1
+    cpus: 1
+    mem_limit: 1g

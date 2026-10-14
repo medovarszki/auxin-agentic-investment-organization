@@ -12,7 +12,7 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 1. Szervezeti terv | kész: `docs/ORG.md`, `org/org.yaml`, `org/rules/portfolio-rules.yaml`, `org/schema/agent.schema.json`, 4 `agent.yaml`, `scripts/validate_org.py` |
 | 2. Technológiai és adatdöntések | kész: [`docs/adr/0001-tech-stack.md`](adr/0001-tech-stack.md) |
 | 3. Feladat- és üzenetmodell | kész: [`docs/TASK_MODEL.md`](TASK_MODEL.md), `libs/auxin-schemas` (29 teszt) |
-| 4. Agent-container sablon | következik |
+| 4. Agent-container sablon | kód kész (base image, `libs/auxin-runtime`, Market & Sentiment, egress proxy, compose); **build és élő teszt Mihály gépén van hátra** |
 | 5–9. | nincs elkezdve |
 
 ## Döntési napló
@@ -51,6 +51,11 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-14 | Taszkállapotok = A2A 1.0 állapotok (SUBMITTED, WORKING, COMPLETED, REJECTED, FAILED, CANCELED); metaadat-extension URI: `https://auxin.local/a2a/ext/message-metadata/v1` | Nincs saját állapotnév, nincs leképezési réteg |
 | 2026-10-14 | Megbízás idempotencia-kulcsa: `decision_id` → ibkrfacade `client_order_id` | Egy döntésre soha nem megy ki két megbízás |
 | 2026-10-14 | Python 3.12 (`.python-version`), `uv` workspace (`libs/*`), `uv.lock` a repóban; dev: pytest 9.1.1, pyyaml 6.0.3, jsonschema 4.26.0 | Reprodukálható környezet |
+| 2026-10-14 | Build és futtatás Mihály gépén (Remote Control); a cloud containerben nincs Docker daemon és API-kulcs | Mihály döntése |
+| 2026-10-14 | A Market & Sentiment az ibkrfacade elkészültéig csak webkereséssel fut; az MCP szerverek URL-je env-ből jön (`AUXIN_MCP_<NÉV>_URL`), ami nincs beállítva, annak a toolja kimarad | Mihály: valós IBKR-adat a facade után |
+| 2026-10-14 | Egress: `internal: true` agent-hálózat + Squid proxy (`ubuntu/squid:6.6-24.04_edge`) allowlisttel (`api.anthropic.com`), minden kérés naplózva | Mihály döntése (3.a) |
+| 2026-10-14 | Base image: `python:3.12.15-slim`, `astral/uv:0.13.1`, non-root uid 10001, read-only root FS + tmpfs, `cap_drop: ALL`, `no-new-privileges`, 1 CPU / 1 GB, futásonként `max_budget_usd: 2` | Biztonsági alapértékek |
+| 2026-10-14 | Agent SDK: `permission_mode="dontAsk"`, `strict_mcp_config`, `setting_sources=["project"]`, skillek a `/agent/.claude/skills` alatt (root tulajdon, az agent nem módosíthatja), kimenet `output_format` JSON Schema-val; a CLI a wheelben natív binárisként érkezik (nem kell Node) | Ellenőrizve a 0.2.166 forrásában |
 | 2026-10-14 | Feedback loop: `decision-evaluator` service (nem LLM) számol, a Research írja a tanulságot | Determinisztikus mérés, LLM csak az értelmezésre |
 
 ## Feltételezések (megerősítésre várnak)
@@ -69,6 +74,8 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 
 ## Következő lépés
 
-4. fázis: agent-container sablon (közös base image, Dockerfile, agent.yaml betöltése, CLAUDE.md, tool-allowlist, MCP-konfig, limitek, egress allowlist, titokkezelés); először EGY agent (Market & Sentiment), időzített futással, végigtesztelve. Az Agent SDK szerver-oldali web search / fetch támogatását itt kell ellenőrizni.
+4. fázis befejezése Mihály gépén: `cp .env.example .env` (ANTHROPIC_API_KEY), `make test`, `make build`, `make egress-test`, `make scan`. Ellenőrizni: a futás `TASK_STATE_COMPLETED`-del és validált `MarketScanResult`-tal zárul; az `example.com` blokkolt, az `api.anthropic.com` elérhető; a proxy logjából kiderül, hogy a `WebFetch` szerver-oldali-e (ha nem, a proxy blokkolja).
 
-Ellenőrzés: `uv sync && uv run pytest -q && uv run python scripts/validate_org.py`.
+Utána: 5. fázis (A2A réteg, közös Postgres task store).
+
+Ellenőrzés: `uv sync && make test && make validate`.

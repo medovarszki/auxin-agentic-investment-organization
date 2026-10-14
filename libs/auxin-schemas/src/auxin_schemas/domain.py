@@ -27,6 +27,17 @@ class Instrument(_Model):
     industry: str | None = None
 
 
+class InstrumentRef(_Model):
+    """Instrument as an idea names it, before it is resolved to an IBKR conid."""
+
+    symbol: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    asset_class: Literal["stock", "etf"]
+    exchange: str | None = None
+    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    conid: int | None = Field(default=None, gt=0)
+
+
 class Source(_Model):
     title: str = Field(min_length=1)
     url: HttpUrl
@@ -35,11 +46,26 @@ class Source(_Model):
 
 class Idea(_Model):
     idea_id: UUID = Field(default_factory=uuid4)
-    instrument: Instrument
+    instrument: InstrumentRef
     thesis: str = Field(min_length=1)
     rationale: str = Field(min_length=1)
     sources: list[Source] = Field(min_length=1)
     created_at: datetime = Field(default_factory=_now)
+
+
+class MarketView(_Model):
+    summary: str = Field(min_length=1)
+    sentiment: Literal["risk_on", "neutral", "risk_off"]
+    dominant_narratives: list[str] = Field(min_length=1)
+    key_indicators: list[str] = Field(default_factory=list)
+    sources: list[Source] = Field(min_length=1)
+
+
+class MarketScanResult(_Model):
+    """Output of one Market & Sentiment scan."""
+
+    market_view: MarketView
+    ideas: list[Idea]
 
 
 class Proposal(_Model):

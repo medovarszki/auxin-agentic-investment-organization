@@ -47,7 +47,7 @@ reject    reject      reject                                                    
 
 | Objektum | Ki hozza létre | Lényeges mezők |
 |---|---|---|
-| `Idea` | Market & Sentiment | instrumentum, tézis, indoklás, források |
+| `Idea` | Market & Sentiment | instrumentum-hivatkozás (`InstrumentRef`: symbol, név, eszközosztály; a `conid` még hiányozhat), tézis, indoklás, források. A napi kimenet: `MarketScanResult` = `MarketView` + ötletlista |
 | `Proposal` | Research | BUY, piaci ár, célár, horizont (hét), ≥ 3 kockázat, ≥ 3 datált forrás, conviction 1–5, invalidációs feltétel; a hozampotenciál számolt |
 | `Order` | Portfolio Manager | `decision_id` (idempotencia-kulcs), BUY / SELL, mennyiség, **market order** |
 | `Fill` / `OrderReject` | Execution | IBKR order ID, teljesült mennyiség, átlagár, jutalék / ok: `NO_PRICE`, `MISMATCH`, `NOT_PAPER_ACCOUNT`, `BROKER_ERROR` |

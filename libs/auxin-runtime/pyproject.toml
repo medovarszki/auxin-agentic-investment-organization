@@ -1,0 +1,23 @@
+[project]
+name = "auxin-runtime"
+version = "0.1.0"
+description = "Runs one Auxin agent: agent.yaml -> Claude Agent SDK session with limits"
+requires-python = ">=3.12"
+dependencies = [
+    "auxin-schemas",
+    "claude-agent-sdk==0.2.166",
+    "pyyaml==6.0.3",
+]
+
+[project.scripts]
+auxin-agent = "auxin_runtime.cli:main"
+
+[tool.uv.sources]
+auxin-schemas = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/auxin_runtime"]
