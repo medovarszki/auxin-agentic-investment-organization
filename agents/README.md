@@ -4,7 +4,7 @@
 
 ```
 agents/<név>/
-├── agent.yaml    # leíró: szerep, modell, skillek, tool-allowlist, MCP-k, bus ACL, egress, limitek, ütemezés, költségplafon
+├── agent.yaml    # leíró: szerep, modell, skillek, tool-allowlist, MCP-k, üzenettípusok, egress, limitek, ütemezés, költségplafon
 ├── CLAUDE.md     # szerep / rendszerprompt
 ├── skills/       # az agent saját skilljei: skills/<skill>/SKILL.md
 ├── Dockerfile    # FROM _base + saját skillek és függőségek

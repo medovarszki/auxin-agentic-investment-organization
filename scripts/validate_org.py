@@ -45,9 +45,9 @@ def main() -> int:
 
     produced = set(EXTERNAL_PRODUCERS)
     for d in descriptors.values():
-        produced |= set(d["bus"]["produces"])
+        produced |= set(d["messages"]["produces"])
     for name, d in descriptors.items():
-        for msg in d["bus"]["consumes"]:
+        for msg in d["messages"]["consumes"]:
             if msg not in produced:
                 errors.append(f"{name}: consumes '{msg}' but nothing produces it")
 

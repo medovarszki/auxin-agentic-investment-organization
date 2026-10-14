@@ -7,7 +7,7 @@ skills: [order-execution]
 tools:
   allow: [mcp__ibkr__get_contract, mcp__ibkr__get_price, mcp__ibkr__place_order, mcp__ibkr__get_orders]
 mcp_servers: [ibkr]
-bus:
+messages:
   consumes: [order]
   produces: [fill, order_reject]
 permissions: {ibkr: read_write, knowledge_base: none}

@@ -10,8 +10,9 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 |---|---|
 | 0. Felderítés és célok | kész (repó-felderítés, monorepo-váz) |
 | 1. Szervezeti terv | kész: `docs/ORG.md`, `org/org.yaml`, `org/rules/portfolio-rules.yaml`, `org/schema/agent.schema.json`, 4 `agent.yaml`, `scripts/validate_org.py` |
-| 2. Technológiai és adatdöntések | következik |
-| 3–9. | nincs elkezdve |
+| 2. Technológiai és adatdöntések | kész: [`docs/adr/0001-tech-stack.md`](adr/0001-tech-stack.md) |
+| 3. Feladat- és üzenetmodell | következik |
+| 4–9. | nincs elkezdve |
 
 ## Döntési napló
 
@@ -19,7 +20,7 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 |---|---|---|
 | 2026-10-13 | A repó üres volt, greenfield indulás | Nincs meglévő konvenció, amihez igazodni kell |
 | 2026-10-14 | Domain: virtuális befektetési alapkezelő; core szerepek: Market & Sentiment, Research / Analyst, Portfolio Manager, Execution | Finomított brief |
-| 2026-10-14 | Agent ↔ agent kommunikáció központi, perzisztált Redis message buson, kötelező metaadatokkal | Minden kommunikáció látható, naplózott, visszajátszható |
+| 2026-10-14 | ~~Agent ↔ agent kommunikáció központi Redis message buson~~ → leváltotta az A2A (lásd lent) | |
 | 2026-10-14 | Portfólió = egyetlen IBKR számla (alapértelmezés: paper); írási jog csak az Execution agenté | Pénzügyi biztonság, a broker az igazságforrás |
 | 2026-10-14 | Monorepo: `org/`, `agents/`, `libs/`, `mcp-servers/`, `services/`, `infra/`, `tests/`, `docs/` | Egy agent minden eleme egy könyvtárban; importált kód (`libs/`) és futó container (`services/`) külön |
 | 2026-10-14 | Skillek az agentek alatt (`agents/<név>/skills/`), nincs közös skill-könyvtár | Egyelőre nincs közös skill; ha lesz, akkor jön `skills/` |
@@ -31,30 +32,37 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-14 | 4 agent: Market & Sentiment, Research (egyben verifier), Portfolio Manager, Execution (LLM-agent) | Mihály döntése; a verifier szerep a Research része |
 | 2026-10-14 | Minden agent Opus 5.5 | Mihály döntése; minőség a költség előtt |
 | 2026-10-14 | Univerzum: globális részvények és ETF-ek, long only | Mihály döntése |
-| 2026-10-14 | PM-szabályok külön fájlban: egyértelmű instrumentum (conid + tőzsde + deviza), ≥ 15% hozampotenciál, új pozíció ≤ 10% NAV, GICS-szektor ≤ 25% NAV (ideiglenes) | Mihály döntése; a szektorszabály felülvizsgálandó |
+| 2026-10-14 | PM-szabályok külön fájlban: egyértelmű instrumentum (conid + tőzsde + deviza), ≥ 15% hozampotenciál, új pozíció ≤ 10% NAV, szektor ≤ 25% NAV (ideiglenes; besorolás: IBKR industry, lásd 2. fázis) | Mihály döntése; a szektorszabály felülvizsgálandó |
 | 2026-10-14 | Legfeljebb 2 visszadobási kör tételenként; emberi jóváhagyás minden megbízás előtt | Mihály megerősítette |
 | 2026-10-14 | Execution az ibkrfacade-et használja (`medovarszki/ibkrfacade`, Spring Boot REST a TWS API fölött, IB Gateway) az `mcp-servers/ibkr`-en át | Mihály döntése; a REST-nek nincs auth-ja, ezért csak belső hálózat |
 | 2026-10-14 | Execution visszadobja a megbízást, ha nincs árinformáció | Mihály döntése |
+| 2026-10-14 | Agent runtime: Claude Agent SDK (Python) | Programozott allowlist, hookok, költségmérés |
+| 2026-10-14 | Agent ↔ agent: A2A 1.0 (`a2a-sdk` 1.2.2); audit: közös Postgres task store + OTel trace-ek; metaadatok saját A2A extensionben | Mihály: szabványos irány; a központi bus kiesett |
+| 2026-10-14 | Egy Postgres mindenre; Redis csak az ibkrfacade árfolyam-tárolójaként | Egy auditálható igazságforrás |
+| 2026-10-14 | Hitelesítés: agentenkénti bearer token, TLS később | **Jóváhagyott eltérés** a biztonsági alapértéktől (Mihály) |
+| 2026-10-14 | Adat: IBKR (ár, hírek, contract) + szerver-oldali webkeresés; nincs külön fundamentum-API | Mihály döntése |
+| 2026-10-14 | Szektor-besorolás: IBKR `industry` (nem GICS) | Nincs külön adatszolgáltató |
+| 2026-10-14 | IBKR: IB Gateway (`gnzsnz/ib-gateway`) ← ibkrfacade ← `mcp-servers/ibkr`; az ibkrfacade-bővítést Mihály végzi egy külön prompt alapján (idempotens order, számlaösszesítő, historikus ár, hírek, tokenek, containerizálás) | Mihály saját projektje |
+| 2026-10-14 | Verziók: lásd ADR 0001 (claude-agent-sdk 0.2.166, a2a-sdk 1.2.2, mcp 2.3.0, opentelemetry-sdk 1.45.1, GenAI semconv `gen-ai/1.42.0`) | Webes ellenőrzés, 2026-10-14 |
 | 2026-10-14 | Feedback loop: `decision-evaluator` service (nem LLM) számol, a Research írja a tanulságot | Determinisztikus mérés, LLM csak az értelmezésre |
 
 ## Feltételezések (megerősítésre várnak)
 
 - Lokális `docker compose` futtatás, később szerverre vihető.
-- A2A egyelőre nincs; a bus üzenetborítéka A2A-kompatibilis alakú.
 - Nincs short eladás; a „tanulás” memóriát jelent, nem finomhangolást; skill-módosítást csak Mihály hagy jóvá.
 - Emberi jóváhagyás minden megbízás előtt.
 
 ## Nyitott kérdések
 
-- Melyik piac és eszközosztály (US részvény, EU, ETF)?
 - Sikerkritérium (benchmarkhoz mért teljesítmény, döntések indokolhatósága)?
 - A szektorszabály felülvizsgálata (jelenleg ideiglenes).
-- ibkrfacade: hiányzik a számlaösszesítő végpont (NAV, cash, margin); a 4. fázisban pótolni kell.
-- GICS-besorolás adatforrása (2. fázis).
+- ibkrfacade-bővítés (Mihály, külön session): idempotens `POST /order`, számlaösszesítő, historikus ár, hírek, contract-besorolás, tokenek, containerizálás; a TWS API jar 2019-es.
+- Az Agent SDK szerver-oldali web search / fetch támogatásának ellenőrzése (4. fázis).
+- TLS bevezetése a belső A2A-forgalomra (9. fázis).
 - A verifier a Research része, így a saját javaslatát nem független szem ellenőrzi; később a risk egységbe költöztethető.
 
 ## Következő lépés
 
-2. fázis: technológiai és adatdöntések (Agent SDK vs headless Claude Code, task store, ütemező, Redis Streams, adatforrások, IBKR-integráció részletei, verziók webkereséssel ellenőrizve).
+3. fázis: feladat- és üzenetmodell, állapotgép (A2A 1.0 taszkállapotokra leképezve, metaadat-extension, idempotencia, jóváhagyási kapuk).
 
 Ellenőrzés: `python3 scripts/validate_org.py` (PyYAML, jsonschema).

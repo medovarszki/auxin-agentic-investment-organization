@@ -13,12 +13,13 @@ skills:
   - order-verification
   - lesson-writing
 tools:
-  allow: [mcp__fundamentals__*, mcp__news__*, mcp__market-data__*, mcp__knowledge-base__*]
-mcp_servers: [fundamentals, news, market-data, knowledge-base]
-bus:
+  # WebSearch / WebFetch: szerver-oldali (Anthropic API), a 4. fázisban ellenőrizve
+  allow: [WebSearch, WebFetch, mcp__ibkr__get_price, mcp__ibkr__get_history, mcp__ibkr__get_news, mcp__ibkr__get_contract, mcp__ibkr__search_contract, mcp__knowledge-base__*]
+mcp_servers: [ibkr, knowledge-base]
+messages:
   consumes: [idea, review_request, verify_request, decision_outcome]
   produces: [proposal, idea_reject, review_result, verify_result, lesson]
-permissions: {ibkr: none, knowledge_base: read_write}
+permissions: {ibkr: read, knowledge_base: read_write}  # ibkr: csak piaci adat és contract
 egress: []
 limits: {max_concurrent_tasks: 2, max_turns: 80}
 budget: {daily_usd: 30}

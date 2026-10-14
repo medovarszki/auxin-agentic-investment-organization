@@ -4,7 +4,7 @@
   "title": "Auxin agent descriptor (agent.yaml)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["name", "unit", "role", "model", "skills", "tools", "bus", "permissions", "limits", "budget"],
+  "required": ["name", "unit", "role", "model", "skills", "tools", "messages", "permissions", "limits", "budget"],
   "properties": {
     "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
     "unit": {"type": "string"},
@@ -21,7 +21,7 @@
       }
     },
     "mcp_servers": {"type": "array", "items": {"type": "string"}},
-    "bus": {
+    "messages": {
       "type": "object",
       "additionalProperties": false,
       "required": ["consumes", "produces"],

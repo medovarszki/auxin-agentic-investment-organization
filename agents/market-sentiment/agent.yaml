@@ -5,12 +5,13 @@ role: Napi piaci összkép, sentiment és narratíva; befektetési ötletek gene
 model: claude-opus-5-5
 skills: [market-scan, narrative-and-sentiment, idea-generation]
 tools:
-  allow: [mcp__market-data__*, mcp__news__*, mcp__knowledge-base__search]
-mcp_servers: [market-data, news, knowledge-base]
-bus:
+  # WebSearch / WebFetch: szerver-oldali (Anthropic API), a 4. fázisban ellenőrizve
+  allow: [WebSearch, WebFetch, mcp__ibkr__get_price, mcp__ibkr__get_history, mcp__ibkr__get_news, mcp__ibkr__search_contract, mcp__knowledge-base__search]
+mcp_servers: [ibkr, knowledge-base]
+messages:
   consumes: [scan_trigger, idea_reject]
   produces: [market_view, idea]
-permissions: {ibkr: none, knowledge_base: read}
+permissions: {ibkr: read, knowledge_base: read}  # ibkr: csak piaci adat
 egress: []
 schedule:
   - {name: daily-market-scan, cron: "0 6 * * 1-5"}

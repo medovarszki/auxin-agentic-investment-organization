@@ -18,4 +18,4 @@ Ez a fájl a repón dolgozó fejlesztő-sessionöknek szól, nem a futó agentek
 ## Konvenciók
 - Agent: `agents/<név>/` (kebab-case); skill: `agents/<név>/skills/<skill>/SKILL.md`.
 - `libs/` = importált kód, `services/` = futó, nem-agent container.
-- Állapot soha nem a container fájlrendszerében: Redis (bus) vagy Postgres (task store, portfólió-tükör, tudásbázis, döntési napló).
+- Állapot soha nem a container fájlrendszerében: Postgres (A2A task store, portfólió-tükör, tudásbázis, döntési napló).
