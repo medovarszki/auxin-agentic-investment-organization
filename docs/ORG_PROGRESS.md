@@ -12,7 +12,7 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 1. Szervezeti terv | kész: `docs/ORG.md`, `org/org.yaml`, `org/rules/portfolio-rules.yaml`, `org/schema/agent.schema.json`, 4 `agent.yaml`, `scripts/validate_org.py` |
 | 2. Technológiai és adatdöntések | kész: [`docs/adr/0001-tech-stack.md`](adr/0001-tech-stack.md) |
 | 3. Feladat- és üzenetmodell | kész: [`docs/TASK_MODEL.md`](TASK_MODEL.md), `libs/auxin-schemas` (29 teszt) |
-| 4. Agent-container sablon | kód kész (base image, `libs/auxin-runtime`, Market & Sentiment, egress proxy, compose); **build és élő teszt Mihály gépén van hátra** |
+| 4. Agent-container sablon | kész: base image, `libs/auxin-runtime`, Market & Sentiment, egress proxy, compose; élő teszt Mihály gépén (2026-10-14): 40 teszt, egress OK, első scan `COMPLETED` (0,80 USD, 8 turn, 2 ötlet) |
 | 5–9. | nincs elkezdve |
 
 ## Döntési napló
@@ -57,6 +57,11 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-14 | Base image: `python:3.12.15-slim`, `astral/uv:0.13.1`, non-root uid 10001, read-only root FS + tmpfs, `cap_drop: ALL`, `no-new-privileges`, 1 CPU / 1 GB, futásonként `max_budget_usd: 2` | Biztonsági alapértékek |
 | 2026-10-14 | Agent SDK: `permission_mode="dontAsk"`, `strict_mcp_config`, `setting_sources=["project"]`, skillek a `/agent/.claude/skills` alatt (root tulajdon, az agent nem módosíthatja), kimenet `output_format` JSON Schema-val; a CLI a wheelben natív binárisként érkezik (nem kell Node) | Ellenőrizve a 0.2.166 forrásában |
 | 2026-10-14 | Feedback loop: `decision-evaluator` service (nem LLM) számol, a Research írja a tanulságot | Determinisztikus mérés, LLM csak az értelmezésre |
+| 2026-10-14 | Host: Docker CE (docker.com apt repo), nem a snap-os docker | A snap-docker AppArmor-profilja `no-new-privileges` mellett minden container-exec-et tilt; a hardeninget nem lazítjuk |
+| 2026-10-14 | Squid a `/var/log/squid/*.log`-ba naplóz, ezeket az image entrypointja a stdout-ra tail-eli | A `proxy` user nem tudja megnyitni a `/dev/stdout`-ot (a squid induláskor elhalt) |
+| 2026-10-14 | A runner a `ClaudeSDKError`-t is `FAILED` taszkká alakítja | Az API-hiba eddig traceback-kel, `WORKING` állapotban hagyta a taszkot |
+| 2026-10-14 | WebSearch / WebFetch szerver-oldali: ellenőrizve | Élő scan: a proxy csak `api.anthropic.com` CONNECT-et látott, a kimenet 18 forrásdomaint idéz; az allowlist marad egyetlen host |
+| 2026-10-14 | `ANTHROPIC_API_KEY`: workspace-hez kötött Console-kulcs | A workspace nélküli kulcs 400-at ad (`anthropic-workspace-id` kell) |
 
 ## Feltételezések (megerősítésre várnak)
 
@@ -68,14 +73,16 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 - Sikerkritérium (benchmarkhoz mért teljesítmény, döntések indokolhatósága)?
 - A szektorszabály felülvizsgálata (jelenleg ideiglenes).
 - ibkrfacade-bővítés (Mihály, külön session): idempotens `POST /order`, számlaösszesítő, historikus ár, hírek, contract-besorolás, tokenek, containerizálás; a TWS API jar 2019-es.
-- Az Agent SDK szerver-oldali web search / fetch támogatásának ellenőrzése (4. fázis).
+- A `usage.server_tool_use.web_search_requests` 0, holott volt keresés: a Claude Code a WebSearch-öt külön al-hívásban futtatja. A valódi keresés- és költségszámot a runtime-nak kell majd gyűjtenie (a `cost_usd` tartalmazza-e az al-hívást? ellenőrizendő).
+- Forrásminőség: az első scan gyenge forrásokat is idézett (pl. babypips.com, gokhshtein.com); kell-e forrásminőségi szabály vagy domain-preferencia a skillbe?
+- Költség: kb. 0,80 USD / scan; az ütemezés gyakoriságát az `AUXIN_DAILY_COST_CAP_USD`-hez kell igazítani.
 - TLS bevezetése a belső A2A-forgalomra (9. fázis).
 - A verifier a Research része, így a saját javaslatát nem független szem ellenőrzi; később a risk egységbe költöztethető.
 
 ## Következő lépés
 
-4. fázis befejezése Mihály gépén: `cp .env.example .env` (ANTHROPIC_API_KEY), `make test`, `make build`, `make egress-test`, `make scan`. Ellenőrizni: a futás `TASK_STATE_COMPLETED`-del és validált `MarketScanResult`-tal zárul; az `example.com` blokkolt, az `api.anthropic.com` elérhető; a proxy logjából kiderül, hogy a `WebFetch` szerver-oldali-e (ha nem, a proxy blokkolja).
+5. fázis (holnap, 2026-10-15): A2A réteg, közös Postgres task store.
 
-Utána: 5. fázis (A2A réteg, közös Postgres task store).
+Előfeltétel Mihály gépén: Docker CE, `make`, `uv`, kitöltött `.env` (workspace-hez kötött `ANTHROPIC_API_KEY`). Az ibkrfacade ugyanezen a gépen külön compose-projektben fut.
 
-Ellenőrzés: `uv sync && make test && make validate`.
+Ellenőrzés: `uv sync && make test && make validate`; élő: `make build && make egress-test && make scan`.

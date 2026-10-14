@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKError, ResultMessage, query
 from pydantic import BaseModel, ValidationError
 
 from auxin_schemas.task import TASK_TIMEOUT, TaskState, transition
@@ -75,7 +75,7 @@ async def run_task(
     except TimeoutError:
         record.error = f"timeout after {timeout}"
         record.state = transition(record.state, TaskState.FAILED)
-    except (ValidationError, RuntimeError) as exc:
+    except (ValidationError, RuntimeError, ClaudeSDKError) as exc:
         record.error = str(exc)
         record.state = transition(record.state, TaskState.FAILED)
     record.finished_at = datetime.now(timezone.utc)
