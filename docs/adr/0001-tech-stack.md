@@ -18,7 +18,7 @@ Dátum: 2026-10-14 · Állapot: elfogadva (Mihály)
 | Redis | Csak az ibkrfacade árfolyam-tárolója (Redis 8, TimeSeries beépítve) | Nincs agent-forgalom Redisen |
 | Ütemező | Saját `scheduler` service (APScheduler), A2A-hívással indít | Determinisztikus, naplózott triggerek |
 | Hitelesítés | ~~Agentenkénti bearer token~~ → 5. fázis: **egyelőre nincs auth**, csak az `internal` Docker-hálózat (Mihály, 2026-10-15); bearer token és TLS később | **Jóváhagyott eltérés** a biztonsági alapértéktől (Mihály, 2026-10-14); a TLS bevezetése a 9. fázis checklistjén |
-| IBKR | IB Gateway container (`gnzsnz/ib-gateway`, IBC, paper) ← ibkrfacade (Java, bővítve) ← `mcp-servers/ibkr` ← PM (read) / Execution (read+write) | Mihály saját projektje; a bővítést külön prompt írja le |
+| IBKR | ibkrfacade saját stackje (IB Gateway + IBC, paper; Redis; Java REST) ← `mcp-servers/ibkr` (csak olvasó toolok, token nélkül) ← LLM-agentek; az Execution service (6.3) közvetlenül a REST-et hívja | Mihály saját projektje; a broker-oldali üzleti logika ott készül |
 | Árfolyam, hírek | IBKR (élő adat-előfizetés és paper számla rendelkezésre áll) | Mihály |
 | Fundamentumok | IBKR + aktív webkeresés; nincs külön fizetős API | Mihály döntése (2.b) |
 | Szektor-besorolás | IBKR `ContractDetails.industry / category` a GICS helyett | Nincs külön adatszolgáltató; a szektorszabály ehhez igazítva |

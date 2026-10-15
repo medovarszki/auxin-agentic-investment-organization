@@ -1,4 +1,5 @@
-# Phase 5: agents as A2A servers on an internal network, tasks in one shared Postgres table.
+# Agents as A2A servers on an internal network, tasks in one shared Postgres table, broker data through the
+# IBKR MCP server (phase 6.1).
 # Run from the repo root: make up / make scan / make tasks (see Makefile).
 name: auxin
 
@@ -6,6 +7,9 @@ networks:
   agents:
     internal: true        # no route to the internet
   egress: {}
+  # The ibkrfacade project's internal network (make ibkr-up creates it). Only the IBKR MCP server joins it.
+  ibkr-backend:
+    external: true
 
 volumes:
   pgdata: {}
@@ -70,10 +74,12 @@ services:
       # Only the Claude API goes through the proxy; A2A and Postgres stay on the internal network.
       HTTPS_PROXY: http://egress-proxy:3128
       HTTP_PROXY: http://egress-proxy:3128
-      NO_PROXY: localhost,127.0.0.1,postgres,market-sentiment,research
+      NO_PROXY: localhost,127.0.0.1,postgres,market-sentiment,research,mcp-ibkr
+      AUXIN_MCP_IBKR_URL: http://mcp-ibkr:8000/mcp
     depends_on:
       egress-proxy: {condition: service_started}
       postgres: {condition: service_healthy}
+      mcp-ibkr: {condition: service_started}
 
   research:
     <<: *agent-hardening
@@ -84,6 +90,19 @@ services:
     environment: *db-env
     depends_on:
       postgres: {condition: service_healthy}
+
+  # Read-only IBKR tools over ibkrfacade (no token for now, Mihály); the agents never reach ibkrfacade directly.
+  mcp-ibkr:
+    <<: *agent-hardening
+    build:
+      context: ../..
+      dockerfile: mcp-servers/ibkr/Dockerfile
+    image: auxin-mcp-ibkr
+    environment:
+      IBKRFACADE_URL: http://ibkrfacade:8082/ibkr
+    networks: [agents, ibkr-backend]
+    cpus: 0.5
+    mem_limit: 256m
 
   # One-shot sender for manual triggers: make scan. Not a long-running service.
   operator:

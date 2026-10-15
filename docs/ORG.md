@@ -97,5 +97,5 @@ Az agentek A2A 1.0-n kommunikálnak (ADR 0001); a közös Postgres task store é
 ## Ismert korlátok és nyitott pontok
 
 - **Subagentek:** a subagentek nem indíthatnak további subagenteket. Ha a Research egy ötletet párhuzamos subagentekkel elemez (pl. pénzügyek, ellátási lánc), azok tovább már nem bonthatnak. A tervet ez nem akadályozza.
-- **ibkrfacade:** nincs számlaösszesítő végpont (NAV, cash, margin), ez kell a 10%-os súlyszabályhoz; a 4. fázisban pótoljuk. A REST-nek nincs auth-ja, ezért csak a belső hálózaton, az `mcp-servers/ibkr`-en át érhető el.
+- **ibkrfacade:** a saját stackjében fut (IB Gateway, Redis, REST), a `/account/summary` adja a NAV-ot és a cash-t a 10%-os súlyszabályhoz. Token nélkül hívjuk (`IBKR_SECURITY_ENABLED=false`), ezért csak a belső `ibkr-backend` hálózaton érhető el: az LLM-agentek az `mcp-servers/ibkr` olvasó tooljain át, az Execution service (6.3) közvetlenül.
 - **Szektor-besorolás:** az IBKR `industry` mezője (nem GICS), mert nincs külön adatszolgáltató (ADR 0001).

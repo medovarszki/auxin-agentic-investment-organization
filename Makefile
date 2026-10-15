@@ -4,7 +4,7 @@ IBKRFACADE_DIR ?= ../ibkrfacade
 IBKR = cd $(IBKRFACADE_DIR) && docker compose
 PSQL = $(COMPOSE) exec -T postgres sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -P pager=off -c "$$0"'
 
-.PHONY: test validate base build up ibkr-up ibkr-down ibkr-check scan tasks logs scan-local egress-test down
+.PHONY: test validate base build up ibkr-up ibkr-down ibkr-check mcp-check scan tasks logs scan-local egress-test down
 
 test:            ## unit tests
 	uv run pytest -q
@@ -15,7 +15,7 @@ validate:        ## agent.yaml / org.yaml consistency
 base:            ## shared agent base image
 	docker build -f agents/Dockerfile -t auxin-agent-base .
 
-build: base      ## agent images
+build: base      ## agent and MCP server images
 	$(COMPOSE) build
 
 up: ibkr-up      ## broker stack, egress proxy, Postgres and the agent A2A servers
@@ -36,13 +36,14 @@ tasks:           ## the shared task table: who did what, in which state, in whic
 	  FROM a2a_tasks ORDER BY last_updated"
 
 ibkr-check:      ## broker stack: health, paper account, one price (AAPL); never places an order
-	$(IBKR) exec -T ibkrfacade sh -c 'H="Authorization: Bearer $$IBKR_SECURITY_READ_TOKEN"; B=http://localhost:8082/ibkr; \
-	  curl -fsS $$B/actuator/health && echo && \
-	  curl -fsS -H "$$H" $$B/account/summary | head -c 600 && echo && \
-	  curl -fsS -H "$$H" $$B/subscribe/265598 >/dev/null && sleep 3 && curl -fsS -H "$$H" $$B/price/265598 && echo'
+	$(IBKR) exec -T ibkrfacade sh -c 'B=http://localhost:8082/ibkr; curl -fsS $$B/actuator/health && echo && \
+	  curl -fsS $$B/account/summary | head -c 600 && echo && curl -fsS $$B/price/265598 && echo'
 
-logs:            ## agent logs (JSON events)
-	$(COMPOSE) logs -f market-sentiment research
+mcp-check: up    ## IBKR MCP server: tool list, AAPL contract and price, account summary (no orders)
+	$(COMPOSE) run --rm -T --entrypoint python operator - < scripts/mcp_check.py
+
+logs:            ## agent and MCP logs (JSON events)
+	$(COMPOSE) logs -f market-sentiment research mcp-ibkr
 
 scan-local: up   ## phase 4 one-shot run without A2A
 	$(COMPOSE) run --rm market-sentiment run --trigger scan

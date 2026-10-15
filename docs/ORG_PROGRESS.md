@@ -102,6 +102,10 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-15 | **Tudásbázis-írás: a runtime menti** a Research strukturált kimenetéből (javaslat, elutasítás, tanulság, cégjegyzet); az LLM-agentek csak olvasnak (MCP) | Mihály (6. fázis terv, 2.a): nincs író tool az LLM kezében |
 | 2026-10-15 | **5. fázis élő teszt kész** Mihály gépén (Docker CE): `make scan` → 1 `scan_trigger` (market-sentiment) + 2 `idea` (research: VLO, XLV), mind `COMPLETED`, közös trace, közös Postgres task store; 1 p 30 mp, 7 turn. A `CLAUDE_CODE_OAUTH_TOKEN` az Agent SDK-val a containerből működik (a proxy csak `api.anthropic.com`-ot látott) | Lezárja az 5. fázist; a `cost_usd` előfizetésnél csak névleges |
 | 2026-10-15 | **A tőzsdei kapcsolat teljes egészében az ibkrfacade-ra épül**: az ibkrfacade saját stackje (IB Gateway, Redis, facade) a saját checkoutjából és `.env`-jével fut (`make ibkr-up`, a `make up` is elindítja; `IBKRFACADE_DIR`, alapérték `../ibkrfacade`). Gateway-mód, login, tokenek és image az ibkrfacade repó felelőssége; az Auxin csak a REST-et látja (`http://ibkrfacade:8082/ibkr`, `ibkr-backend` hálózat). Broker-oldali üzleti logika az ibkrfacade-be kerül (Mihály); `make ibkr-check`: health, paper számla, egy ár, megbízás nélkül | Mihály döntése |
+| 2026-10-15 | **Broker élő**: az ibkrfacade beépített ib-gateway-e fut (az ibkrfacade `.env`-jében a host-TWS `COMPOSE_FILE` kikommentelve), health UP, `PAPER`, `DU…` számla; account summary, search, contract (industry/category) működik. Hiány: a `/price` előfizetés nélkül elavult (Redis) árat ad frissesség-jelzés nélkül → ibkrfacade-feladat (`auxin/ibkrfacade-prompt-price.md`) | A megbízást az ibkrfacade 15 percnél régebbi árral úgyis elutasítja; a kockázat a PM méretezése |
+| 2026-10-15 | ibkrfacade `7c2ac19` (Mihály): account summary egyetlen tartós előfizetésből (a Gateway 10.50 figyelmen kívül hagyja a protobuf `cancelAccountSummary`-t → 322), `updated_at`; `/price` automatikus subscribe, `quote_age_seconds`, `stale`, `market_data_type`, `max_age` → 422 `STALE_MARKET_DATA`. 68 unit teszt zöld (ellenőrizve) | A PM a NAV-ot és a friss árat ebből kapja |
+| 2026-10-15 | **Nincs token az ibkrfacade felé**: az ibkrfacade `.env`-jében `IBKR_SECURITY_ENABLED=false`; a facade csak a belső `ibkr-backend` hálózaton érhető el | Mihály döntése: egyelőre csak működjön a kommunikáció (mint az A2A-nál) |
+| 2026-10-15 | **6.1 IBKR MCP szerver** (`mcp-servers/ibkr`, `mcp` 2.3.0 – a PyPI legfrissebb, 2026-10-02 –, `MCPServer`, stateless streamable HTTP, JSON-válasz): 7 olvasó tool, tömörített válaszok, a facade-hibák `KÓD: részletek` tool-hibaként; csak az MCP container van az `ibkr-backend` hálózaton. A Market & Sentiment megkapja (`AUXIN_MCP_IBKR_URL`), az ötletek IBKR conidra oldva, max. 3 ötlet (a séma is) | Az Execution determinisztikus, ezért nincs író tool; a portfólió- és tiltólista-szűrés (5.a) a 6.2 után |
 
 ## Feltételezések (megerősítésre várnak)
 
@@ -119,6 +123,6 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 
 ## Következő lépés
 
-6. fázis: döntési hurkok (terv: `auxin/phase6-plan.md` a projekt fájljai közt), első lépés a broker stack élő indítása Mihály gépén (`make up && make ibkr-check`), utána a 6.1 broker-hozzáférés (IBKR MCP szerver).
+6. fázis: döntési hurkok (terv: `auxin/phase6-plan.md` a projekt fájljai közt), 6.1 élő teszt Mihály gépén: `make build && make up && make mcp-check && make scan`; elvárt: az ötletekben valódi IBKR conid. Utána 6.2 tudásbázis és portfólió-tükör.
 
 Előfeltétel Mihály gépén: Docker CE, `make`, `uv`, kitöltött `.env` (`CLAUDE_CODE_OAUTH_TOKEN`, `POSTGRES_PASSWORD`; `ANTHROPIC_API_KEY` nincs). Az ibkrfacade ugyanezen a gépen külön compose-projektben fut.

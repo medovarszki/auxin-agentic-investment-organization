@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "auxin",
     "auxin-a2a",
+    "auxin-mcp-ibkr",
     "auxin-runtime",
     "auxin-schemas",
 ]
@@ -155,6 +156,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "auxin-a2a" },
+    { name = "auxin-mcp-ibkr" },
     { name = "auxin-runtime" },
     { name = "auxin-schemas" },
 ]
@@ -169,6 +171,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "auxin-a2a", editable = "libs/auxin-a2a" },
+    { name = "auxin-mcp-ibkr", editable = "mcp-servers/ibkr" },
     { name = "auxin-runtime", editable = "libs/auxin-runtime" },
     { name = "auxin-schemas", editable = "libs/auxin-schemas" },
 ]
@@ -196,6 +199,23 @@ requires-dist = [
     { name = "a2a-sdk", extras = ["http-server", "postgresql"], specifier = "==1.2.2" },
     { name = "auxin-schemas", editable = "libs/auxin-schemas" },
     { name = "httpx", specifier = "==0.28.1" },
+    { name = "uvicorn", specifier = "==0.54.0" },
+]
+
+[[package]]
+name = "auxin-mcp-ibkr"
+version = "0.1.0"
+source = { editable = "mcp-servers/ibkr" }
+dependencies = [
+    { name = "httpx" },
+    { name = "mcp" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = "==0.28.1" },
+    { name = "mcp", specifier = "==2.3.0" },
     { name = "uvicorn", specifier = "==0.54.0" },
 ]
 
