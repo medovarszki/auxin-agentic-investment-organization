@@ -100,6 +100,8 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-15 | Trace-backend: Jaeger all-in-one, lokálisan (7. fázis) | Mihály (23.a) |
 | 2026-10-15 | **Portfolio Manager: LLM-agent marad** (a szabálykaput és a conviction-méretezést a runtime determinisztikusan ellenőrzi a kimenetén, a döntés indoklása az LLM-é) | Mihály döntése (6. fázis terv, 1.b) |
 | 2026-10-15 | **Tudásbázis-írás: a runtime menti** a Research strukturált kimenetéből (javaslat, elutasítás, tanulság, cégjegyzet); az LLM-agentek csak olvasnak (MCP) | Mihály (6. fázis terv, 2.a): nincs író tool az LLM kezében |
+| 2026-10-15 | **5. fázis élő teszt kész** Mihály gépén (Docker CE): `make scan` → 1 `scan_trigger` (market-sentiment) + 2 `idea` (research: VLO, XLV), mind `COMPLETED`, közös trace, közös Postgres task store; 1 p 30 mp, 7 turn. A `CLAUDE_CODE_OAUTH_TOKEN` az Agent SDK-val a containerből működik (a proxy csak `api.anthropic.com`-ot látott) | Lezárja az 5. fázist; a `cost_usd` előfizetésnél csak névleges |
+| 2026-10-15 | **Az ibkrfacade stack az Auxin compose része** (`infra/compose/ibkr.yml`, a Makefile fűzi a fő compose-hoz): ib-gateway container (paper login az Auxin `.env`-ből, IBC napi újraindítás), Redis 8.8.3, ibkrfacade a kész image-ből (`IBKRFACADE_IMAGE`, alapérték `ibkrfacade:local`; `make ibkrfacade-image` buildeli a `../ibkrfacade` checkoutból). Belső `ibkr` hálózat, kifelé csak a gateway megy (közvetlenül, nem a Squidon át); `make ibkr-check`: health, paper számla, egy ár, megbízás nélkül | Mihály döntése: egy `make up` indít mindent; a gateway container miatt az ütemezett futásokhoz nem kell a hoston futó TWS |
 
 ## Feltételezések (megerősítésre várnak)
 
@@ -111,15 +113,12 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 - A szektorszabály felülvizsgálata (jelenleg ideiglenes).
 - A `usage.server_tool_use.web_search_requests` 0, holott volt keresés: a Claude Code a WebSearch-öt külön al-hívásban futtatja. A valódi keresés- és költségszámot a runtime-nak kell majd gyűjtenie (a `cost_usd` tartalmazza-e az al-hívást? ellenőrizendő).
 - Előfizetési keret: kell-e napi taszk-limit, hogy az agentek ne fogyasszák el a heti keretet (a napi teljes review pozíciónként fut)?
-- Működik-e a `CLAUDE_CODE_OAUTH_TOKEN` az Agent SDK-val (a doksi explicit nem írja): az első élő futás dönti el.
 - A2A auth (agentenkénti token, ki kitől mit fogadhat el) és TLS a belső forgalomra: később (Mihály).
 - Unit tesztek az `auxin-a2a`-hoz (metaadat-elutasítás, timeout): később (Mihály).
 - A verifier a Research része, így a saját javaslatát nem független szem ellenőrzi; később a risk egységbe költöztethető.
 
 ## Következő lépés
 
-5. fázis élő teszt Mihály gépén: `make build && make up && make scan && make tasks`. Elvárt: egy `scan_trigger` taszk (market-sentiment) és ötletenként egy `idea` taszk (research), mind `COMPLETED`, közös trace-szel.
-
-Utána 6. fázis: döntési hurkok (terv: `auxin/phase6-plan.md` a projekt fájljai közt). A terv elfogadva, az indításra Mihály jelzése kell (2026-10-15: „egyelőre nem, még várunk”).
+6. fázis: döntési hurkok (terv: `auxin/phase6-plan.md` a projekt fájljai közt), első lépés a broker stack élő indítása Mihály gépén (`make up && make ibkr-check`), utána a 6.1 broker-hozzáférés (IBKR MCP szerver).
 
 Előfeltétel Mihály gépén: Docker CE, `make`, `uv`, kitöltött `.env` (`CLAUDE_CODE_OAUTH_TOKEN`, `POSTGRES_PASSWORD`; `ANTHROPIC_API_KEY` nincs). Az ibkrfacade ugyanezen a gépen külön compose-projektben fut.

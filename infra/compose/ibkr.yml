@@ -1,0 +1,83 @@
+# Broker stack (from medovarszki/ibkrfacade): IB Gateway (paper) + Redis 8 + ibkrfacade REST API.
+# Merged into the main compose by the Makefile (-f docker-compose.yml -f ibkr.yml).
+#
+# The facade image is not built here: `make ibkrfacade-image` builds it from the ibkrfacade checkout
+# (IBKRFACADE_DIR, default ../ibkrfacade). Nothing is published to the host.
+# Later the IBKR MCP server and the Execution service join the "ibkr" network; the agents never do.
+
+networks:
+  ibkr:
+    internal: true        # facade <-> gateway <-> redis, plus the MCP server / Execution later
+  ibkr-egress: {}         # only the gateway: it must reach the IB servers directly (not an HTTP proxy protocol)
+
+volumes:
+  ibkr-redis: {}
+
+services:
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:10.50.1f
+    environment:
+      TWS_USERID: ${IBKR_USERNAME:?set in .env (dedicated paper user)}
+      TWS_PASSWORD: ${IBKR_PASSWORD:?set in .env}
+      TRADING_MODE: ${IBKR_TRADING_MODE:-paper}
+      READ_ONLY_API: "no"
+      TWS_ACCEPT_INCOMING: accept
+      BYPASS_WARNING: "yes"
+      # Daily restart without a new login (IBC); outside the 09:00 / 15:30 / 21:00 jobs
+      AUTO_RESTART_TIME: ${IBKR_AUTO_RESTART_TIME:-11:45 PM}
+      TWOFA_TIMEOUT_ACTION: restart
+      RELOGIN_AFTER_TWOFA_TIMEOUT: "yes"
+      EXISTING_SESSION_DETECTED_ACTION: primary
+      TIME_ZONE: Europe/Budapest
+      TZ: Europe/Budapest
+    networks: [ibkr, ibkr-egress]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    cpus: 1
+    mem_limit: 1g
+
+  ibkr-redis:
+    image: redis:8.8.3
+    environment:
+      REDIS_PASSWORD: ${IBKR_REDIS_PASSWORD:?set in .env}
+    # through docker-entrypoint.sh: it loads the bundled modules (RedisTimeSeries) and drops root
+    command: ["sh", "-c", "exec docker-entrypoint.sh redis-server --requirepass \"$$REDIS_PASSWORD\" --appendonly yes"]
+    volumes:
+      - ibkr-redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [ibkr]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 256m
+
+  ibkrfacade:
+    image: ${IBKRFACADE_IMAGE:-ibkrfacade:local}
+    pull_policy: never                  # built from the ibkrfacade repo, never pulled
+    environment:
+      IBKR_TWS_HOST: ib-gateway
+      IBKR_TWS_PORT: 4004                 # paper API inside the gateway container (socat 4004 -> 4002)
+      IBKR_TWS_CLIENT_ID: 1
+      IBKR_ALLOW_LIVE: "false"            # paper only; a live account needs Mihály's approval again
+      IBKR_MARKET_DATA_TYPE: 1            # live data shared from the live account (decision 2.a)
+      IBKR_SECURITY_ENABLED: "true"
+      IBKR_SECURITY_READ_TOKEN: ${IBKRFACADE_TOKEN_READ:?set in .env (openssl rand -hex 32)}
+      IBKR_SECURITY_WRITE_TOKEN: ${IBKRFACADE_TOKEN_WRITE:?set in .env (openssl rand -hex 32)}
+      REDIS_HOST: ibkr-redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${IBKR_REDIS_PASSWORD:?set in .env}
+    depends_on:
+      ibkr-redis: {condition: service_healthy}
+      ib-gateway: {condition: service_started}
+    networks: [ibkr]
+    read_only: true
+    tmpfs: ["/tmp:size=64m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    cpus: 1
+    mem_limit: 768m
