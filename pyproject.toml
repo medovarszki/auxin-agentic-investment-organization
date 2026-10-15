@@ -2,7 +2,7 @@
 name = "auxin"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["auxin-schemas", "auxin-runtime"]
+dependencies = ["auxin-schemas", "auxin-runtime", "auxin-a2a"]
 
 [tool.uv]
 package = false
@@ -10,6 +10,7 @@ package = false
 [tool.uv.sources]
 auxin-schemas = { workspace = true }
 auxin-runtime = { workspace = true }
+auxin-a2a = { workspace = true }
 
 [tool.uv.workspace]
 members = ["libs/*"]

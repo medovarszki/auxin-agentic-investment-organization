@@ -5,6 +5,7 @@ description = "Runs one Auxin agent: agent.yaml -> Claude Agent SDK session with
 requires-python = ">=3.12"
 dependencies = [
     "auxin-schemas",
+    "auxin-a2a",
     "claude-agent-sdk==0.2.166",
     "pyyaml==6.0.3",
 ]
@@ -14,6 +15,7 @@ auxin-agent = "auxin_runtime.cli:main"
 
 [tool.uv.sources]
 auxin-schemas = { workspace = true }
+auxin-a2a = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

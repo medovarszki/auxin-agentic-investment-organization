@@ -35,12 +35,19 @@ class Budget(_Spec):
     per_run_usd: float | None = None
 
 
+class Messages(_Spec):
+    consumes: list[str]
+    produces: list[str]
+
+
 class AgentDescriptor(_Spec):
     name: str
+    role: str
     model: str
     skills: list[str]
     tools: Tools
     mcp_servers: list[str] = []
+    messages: Messages
     limits: Limits
     budget: Budget
 

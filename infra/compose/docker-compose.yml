@@ -1,11 +1,21 @@
-# Walking skeleton (phase 4): one agent behind the egress proxy.
-# Run from the repo root: make up / make scan (see Makefile).
+# Phase 5: agents as A2A servers on an internal network, tasks in one shared Postgres table.
+# Run from the repo root: make up / make scan / make tasks (see Makefile).
 name: auxin
 
 networks:
   agents:
     internal: true        # no route to the internet
   egress: {}
+
+volumes:
+  pgdata: {}
+
+# Values come from the repo-root .env (the Makefile passes --env-file .env); each container
+# gets only the variables it needs.
+x-db-env: &db-env
+  POSTGRES_USER: ${POSTGRES_USER:?set in .env}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+  POSTGRES_DB: ${POSTGRES_DB:?set in .env}
 
 x-agent-hardening: &agent-hardening
   read_only: true
@@ -16,8 +26,9 @@ x-agent-hardening: &agent-hardening
     - /tmp:size=64m
     - /home/agent:size=128m,uid=10001,gid=10001
   networks: [agents]
-  depends_on: [egress-proxy]
-  restart: "no"
+  restart: unless-stopped
+  cpus: 1
+  mem_limit: 1g
 
 services:
   egress-proxy:
@@ -29,16 +40,53 @@ services:
     cpus: 0.5
     mem_limit: 256m
 
+  # Shared A2A task store (table a2a_tasks); later also portfolio mirror and knowledge base.
+  postgres:
+    image: postgres:18.6
+    environment: *db-env
+    volumes:
+      - pgdata:/var/lib/postgresql
+    networks: [agents]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    cpus: 1
+    mem_limit: 512m
+
   market-sentiment:
     <<: *agent-hardening
     build:
       context: ../..
       dockerfile: agents/market-sentiment/Dockerfile
     image: auxin-market-sentiment
-    env_file: ../../.env
     environment:
+      <<: *db-env
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set in .env}
+      # Only the Claude API goes through the proxy; A2A and Postgres stay on the internal network.
       HTTPS_PROXY: http://egress-proxy:3128
       HTTP_PROXY: http://egress-proxy:3128
-      NO_PROXY: localhost,127.0.0.1
-    cpus: 1
-    mem_limit: 1g
+      NO_PROXY: localhost,127.0.0.1,postgres,market-sentiment,research
+    depends_on:
+      egress-proxy: {condition: service_started}
+      postgres: {condition: service_healthy}
+
+  research:
+    <<: *agent-hardening
+    build:
+      context: ../..
+      dockerfile: agents/research/Dockerfile
+    image: auxin-research
+    environment: *db-env
+    depends_on:
+      postgres: {condition: service_healthy}
+
+  # One-shot sender for manual triggers: make scan. Not a long-running service.
+  operator:
+    <<: *agent-hardening
+    image: auxin-agent-base
+    restart: "no"
+    profiles: [tools]

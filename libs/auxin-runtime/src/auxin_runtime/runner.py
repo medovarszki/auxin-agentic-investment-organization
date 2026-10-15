@@ -51,9 +51,10 @@ async def run_task(
     output_model: type[BaseModel],
     timeout: timedelta = TASK_TIMEOUT,
     query_fn: QueryFn = query,
+    task_id: str | None = None,
 ) -> TaskRecord:
     record = TaskRecord(
-        task_id=str(uuid.uuid4()),
+        task_id=task_id or str(uuid.uuid4()),
         agent=agent,
         state=TaskState.SUBMITTED,
         started_at=datetime.now(timezone.utc),

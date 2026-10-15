@@ -17,7 +17,7 @@ Dátum: 2026-10-14 · Állapot: elfogadva (Mihály)
 | Tárolás | **Egy Postgres**: A2A task store, portfólió-tükör, tudásbázis, döntési napló; pgvector később | Egy auditálható igazságforrás |
 | Redis | Csak az ibkrfacade árfolyam-tárolója (Redis 8, TimeSeries beépítve) | Nincs agent-forgalom Redisen |
 | Ütemező | Saját `scheduler` service (APScheduler), A2A-hívással indít | Determinisztikus, naplózott triggerek |
-| Hitelesítés | Agentenkénti **bearer token**, az Agent Card `securitySchemes`-ében deklarálva; belső Docker-hálózat. **TLS később** | **Jóváhagyott eltérés** a biztonsági alapértéktől (Mihály, 2026-10-14); a TLS bevezetése a 9. fázis checklistjén |
+| Hitelesítés | ~~Agentenkénti bearer token~~ → 5. fázis: **egyelőre nincs auth**, csak az `internal` Docker-hálózat (Mihály, 2026-10-15); bearer token és TLS később | **Jóváhagyott eltérés** a biztonsági alapértéktől (Mihály, 2026-10-14); a TLS bevezetése a 9. fázis checklistjén |
 | IBKR | IB Gateway container (`gnzsnz/ib-gateway`, IBC, paper) ← ibkrfacade (Java, bővítve) ← `mcp-servers/ibkr` ← PM (read) / Execution (read+write) | Mihály saját projektje; a bővítést külön prompt írja le |
 | Árfolyam, hírek | IBKR (élő adat-előfizetés és paper számla rendelkezésre áll) | Mihály |
 | Fundamentumok | IBKR + aktív webkeresés; nincs külön fizetős API | Mihály döntése (2.b) |
@@ -39,7 +39,10 @@ Dátum: 2026-10-14 · Állapot: elfogadva (Mihály)
 | `alembic` | 1.20.0 |
 | `psycopg` | 3.3.6 |
 | `apscheduler` | 3.11.3 |
-| `fastapi` | 0.143.0 |
+| `fastapi` | 0.143.0 (nem használjuk; a szerver Starlette + uvicorn) |
+| `uvicorn` | 0.54.0 (5. fázis) |
+| `httpx` | 0.28.1 (5. fázis) |
+| Postgres image | `postgres:18.6` (5. fázis) |
 | `redis` (csak ha kell) | 8.1.0 |
 
 ## Következmények és kockázatok

@@ -13,7 +13,8 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2. Technológiai és adatdöntések | kész: [`docs/adr/0001-tech-stack.md`](adr/0001-tech-stack.md) |
 | 3. Feladat- és üzenetmodell | kész: [`docs/TASK_MODEL.md`](TASK_MODEL.md), `libs/auxin-schemas` (29 teszt) |
 | 4. Agent-container sablon | kész: base image, `libs/auxin-runtime`, Market & Sentiment, egress proxy, compose; élő teszt Mihály gépén (2026-10-14): 40 teszt, egress OK, első scan `COMPLETED` (0,80 USD, 8 turn, 2 ötlet) |
-| 5–9. | nincs elkezdve |
+| 5. Kommunikációs réteg | kód kész: `libs/auxin-a2a`, A2A szerverek (Market & Sentiment, Research stub), Postgres task store, `make scan` / `make tasks`; lokális füstteszt OK (SQLite-tal); élő teszt Mihály gépén hátravan |
+| 6–9. | nincs elkezdve |
 
 ## Döntési napló
 
@@ -29,7 +30,7 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-14 | Skillek build-időben az image-be sütve; közös base image (`agents/Dockerfile`, Mihály kérésére nem alkönyvtár) + vékony agentenkénti Dockerfile | Immutable, auditálható image; biztonsági alapértékek egy helyen |
 | 2026-10-14 | Nyelv: Python + `uv` workspace (verziók a 2. fázisban, webkereséssel ellenőrizve) | Agent SDK Python, IBKR- és adatkönyvtárak |
 | 2026-10-14 | Git: közvetlenül `main`-re dolgozunk, nincs külön branch | Mihály kérése |
-| 2026-10-14 | GitHubra egyelőre nem pusholunk; a helyi `main` mentése a projektmappában: `auxin/auxin-main.bundle` (fázisonként frissítve) | Mihály kérése; a cloud container ideiglenes |
+| 2026-10-14 | Push csak Mihály kifejezett kérésére; a helyi `main` mentése a projektmappában: `auxin/auxin-main.bundle` | Mihály kérése; a cloud container ideiglenes |
 | 2026-10-14 | 4 agent: Market & Sentiment, Research (egyben verifier), Portfolio Manager, Execution (LLM-agent) | Mihály döntése; a verifier szerep a Research része |
 | 2026-10-14 | Minden agent Opus 5.5 | Mihály döntése; minőség a költség előtt |
 | 2026-10-14 | Univerzum: globális részvények és ETF-ek, long only | Mihály döntése |
@@ -40,7 +41,7 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-14 | Agent runtime: Claude Agent SDK (Python) | Programozott allowlist, hookok, költségmérés |
 | 2026-10-14 | Agent ↔ agent: A2A 1.0 (`a2a-sdk` 1.2.2); audit: közös Postgres task store + OTel trace-ek; metaadatok saját A2A extensionben | Mihály: szabványos irány; a központi bus kiesett |
 | 2026-10-14 | Egy Postgres mindenre; Redis csak az ibkrfacade árfolyam-tárolójaként | Egy auditálható igazságforrás |
-| 2026-10-14 | Hitelesítés: agentenkénti bearer token, TLS később | **Jóváhagyott eltérés** a biztonsági alapértéktől (Mihály) |
+| 2026-10-14 | ~~Hitelesítés: agentenkénti bearer token, TLS később~~ → lásd 2026-10-15 | |
 | 2026-10-14 | Adat: IBKR (ár, hírek, contract) + szerver-oldali webkeresés; nincs külön fundamentum-API | Mihály döntése |
 | 2026-10-14 | Szektor-besorolás: IBKR `industry` (nem GICS) | Nincs külön adatszolgáltató |
 | 2026-10-14 | IBKR: IB Gateway (`gnzsnz/ib-gateway`) ← ibkrfacade ← `mcp-servers/ibkr`; az ibkrfacade-bővítést Mihály végzi egy külön prompt alapján (idempotens order, számlaösszesítő, historikus ár, hírek, tokenek, containerizálás) | Mihály saját projektje |
@@ -62,6 +63,15 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-14 | A runner a `ClaudeSDKError`-t is `FAILED` taszkká alakítja | Az API-hiba eddig traceback-kel, `WORKING` állapotban hagyta a taszkot |
 | 2026-10-14 | WebSearch / WebFetch szerver-oldali: ellenőrizve | Élő scan: a proxy csak `api.anthropic.com` CONNECT-et látott, a kimenet 18 forrásdomaint idéz; az allowlist marad egyetlen host |
 | 2026-10-14 | `ANTHROPIC_API_KEY`: workspace-hez kötött Console-kulcs | A workspace nélküli kulcs 400-at ad (`anthropic-workspace-id` kell) |
+| 2026-10-15 | **Egyelőre nincs A2A auth** (se token, se TLS); védelem csak az `internal` Docker-hálózat | **Jóváhagyott eltérés** (Mihály): előbb működő agent-hálózat, a jogosultságkezelés később |
+| 2026-10-15 | Az 5. fázisban nincs új unit teszt; bizonyíték a futó rendszer és a task tábla | Mihály döntése: később építjük be |
+| 2026-10-15 | Minden agent A2A szerver (`auxin-agent serve`, JSON-RPC + SSE, port 8000, Agent Card az `agent.yaml`-ból: a `messages.consumes` lesz a skill-lista); a kliens `trust_env=False`-szal megy, így a belső forgalom nem a proxyn át | Az A2A 1.0 alapértelmezése; a proxy csak a Claude API-é |
+| 2026-10-15 | Közös task store: egy Postgres tábla (`a2a_tasks`, `a2a-sdk` `DatabaseTaskStore`), egy role; `owner` = a végrehajtó agent, a `metadata` mezőben a routing (sender, type, subject, correlation_id, trace_id) | Mihály döntése (3.b); egy lekérdezés mutatja a teljes folyamatot |
+| 2026-10-15 | Metaadat: `task_id` = a küldő saját taszkja, `correlation_id` = a folyamat (scan) azonosítója, `trace_id` a teljes láncon közös; az átadott ötlet A2A `reference_task_ids`-ben hivatkozik a scan-taszkra | Az A2A-ban a címzett nyit új taszkot, a küldő nem adhat neki ID-t |
+| 2026-10-15 | Rossz címzett, nem fogadott típus vagy hiányzó metaadat → `REJECTED`; handler-hiba vagy 10 perces timeout → `FAILED`; tartalmi elutasítás (`Rejected`) → `REJECTED` | TASK_MODEL szerint |
+| 2026-10-15 | A Research az 5. fázisban LLM nélküli stub: validálja és elmenti az ötletet (`COMPLETED`); a valódi Research a 6. fázisban | Olcsó, az A2A-t önmagában bizonyítja |
+| 2026-10-15 | A scant egyelőre a `make scan` indítja (egy rövid életű `operator` container küldi a `scan_trigger`-t); a `scheduler` service a 6. fázisban | Mihály döntése (2.a) |
+| 2026-10-15 | Containerenként csak a szükséges env változó (a compose a gyökér `.env`-ből interpolál; a Research és a Postgres nem kapja meg az API-kulcsot) | Legkisebb jogosultság |
 
 ## Feltételezések (megerősítésre várnak)
 
@@ -76,13 +86,14 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 - A `usage.server_tool_use.web_search_requests` 0, holott volt keresés: a Claude Code a WebSearch-öt külön al-hívásban futtatja. A valódi keresés- és költségszámot a runtime-nak kell majd gyűjtenie (a `cost_usd` tartalmazza-e az al-hívást? ellenőrizendő).
 - Forrásminőség: az első scan gyenge forrásokat is idézett (pl. babypips.com, gokhshtein.com); kell-e forrásminőségi szabály vagy domain-preferencia a skillbe?
 - Költség: kb. 0,80 USD / scan; az ütemezés gyakoriságát az `AUXIN_DAILY_COST_CAP_USD`-hez kell igazítani.
-- TLS bevezetése a belső A2A-forgalomra (9. fázis).
+- A2A auth (agentenkénti token, ki kitől mit fogadhat el) és TLS a belső forgalomra: később (Mihály).
+- Unit tesztek az `auxin-a2a`-hoz (metaadat-elutasítás, timeout): később (Mihály).
 - A verifier a Research része, így a saját javaslatát nem független szem ellenőrzi; később a risk egységbe költöztethető.
 
 ## Következő lépés
 
-5. fázis (holnap, 2026-10-15): A2A réteg, közös Postgres task store.
+5. fázis élő teszt Mihály gépén: `make build && make up && make scan && make tasks`. Elvárt: egy `scan_trigger` taszk (market-sentiment) és ötletenként egy `idea` taszk (research), mind `COMPLETED`, közös trace-szel.
 
-Előfeltétel Mihály gépén: Docker CE, `make`, `uv`, kitöltött `.env` (workspace-hez kötött `ANTHROPIC_API_KEY`). Az ibkrfacade ugyanezen a gépen külön compose-projektben fut.
+Utána 6. fázis: döntési hurkok (valódi Research, PM, Execution, scheduler).
 
-Ellenőrzés: `uv sync && make test && make validate`; élő: `make build && make egress-test && make scan`.
+Előfeltétel Mihály gépén: Docker CE, `make`, `uv`, kitöltött `.env` (workspace-hez kötött `ANTHROPIC_API_KEY`, `POSTGRES_PASSWORD`). Az ibkrfacade ugyanezen a gépen külön compose-projektben fut.

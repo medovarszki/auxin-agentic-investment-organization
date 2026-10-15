@@ -10,4 +10,4 @@ COPY agents/market-sentiment/prompts /agent/prompts
 COPY agents/market-sentiment/skills /agent/.claude/skills
 USER agent
 
-CMD ["run", "--trigger", "scan"]
+CMD ["serve"]
