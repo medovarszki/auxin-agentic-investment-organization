@@ -36,7 +36,7 @@ Minden agent modellje **Opus 5.5** (a pontos modell-ID a 2. fázisban rögzül).
 - **Megjegyzés (kockázat):** mivel a verifier a Research része, a saját javaslatát nem független szem ellenőrzi. A függetlenséget a PM szabálykapuja (determinisztikus szabályfájl) adja; emberi kapu a tech demóban nincs. Ha a risk egység elkészül, a verifier szerep oda átköltöztethető.
 
 ### Portfolio Manager
-- **Felelősség:** portfóliókapu: a javaslat megfelel-e a [szabályoknak](../org/rules/portfolio-rules.yaml), pozícióméret, megbízás-tervezet. Időzített (heti) review: minden nyitott pozícióra `review_request` a Researchnek, a válasz alapján tart / csökkent / zár.
+- **Felelősség:** portfóliókapu: a javaslat megfelel-e a [szabályoknak](../org/rules/portfolio-rules.yaml), pozícióméret, megbízás-tervezet. Időzített (napi, munkanapokon) review: minden nyitott pozícióra `review_request` a Researchnek, a válasz alapján tart / csökkent / zár.
 - **Bemenet:** `proposal`, `review_result`, `verify_result`, `fill`; ibkr MCP (csak olvasó toolok), portfólió-tükör.
 - **Kimenet:** `proposal_reject`, `order_draft` (`verify_request`), `order`, `review_request`.
 - **Skillek:** `rule-check`, `position-sizing`, `portfolio-review`.
@@ -65,7 +65,7 @@ scheduler ─► Market & Sentiment ─idea─► Research ─proposal─► Por
 ```
 
 ### 2. Felülvizsgálat és eladás
-Heti scheduler trigger (vagy jelentős hír) → PM: minden nyitott pozícióra `review_request` → Research: `review_result` (hold / reduce / close, indoklással) → PM dönt → reduce / close esetén `order_draft` → Research verify → Execution. Short nincs: az eladás csak csökkentés vagy zárás.
+Napi (munkanapi) scheduler trigger (vagy jelentős hír) → PM: minden nyitott pozícióra `review_request` → Research: `review_result` (hold / reduce / close, indoklással) → PM dönt → reduce / close esetén `order_draft` → Research verify → Execution. Short nincs: az eladás csak csökkentés vagy zárás.
 
 ### 3. Feedback loop
 A `decision-evaluator` service (determinisztikus, nem LLM) időzítetten kiértékeli a döntéseket: realizált és nem realizált P&L, hozam benchmarkhoz képest, elérte-e a célárat a horizonton belül, kockázattal korrigált hozam. Az eredményt `decision_outcome` üzenetben küldi a döntést hozó agentnek (Research), aki tanulságot ír a tudásbázisba (`lesson`). A tanulság automatikusan bővítheti a memóriát; skill-, szabály- vagy promptmódosítást csak **javasolhat**, azt Mihály hagyja jóvá.

@@ -14,6 +14,6 @@ messages:
 permissions: {ibkr: read, knowledge_base: read}  # ibkr: csak piaci adat
 egress: []
 schedule:
-  - {name: daily-market-scan, cron: "0 6 * * 1-5"}
+  - {name: daily-market-scan, cron: "0 9 * * 1-5"}  # Europe/Budapest
 limits: {max_concurrent_tasks: 1, max_turns: 40}
 budget: {daily_usd: 10, per_run_usd: 2}

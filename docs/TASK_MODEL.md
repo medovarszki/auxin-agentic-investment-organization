@@ -5,7 +5,7 @@
 ## Alapelvek
 
 - **Tech demo, csak paper számla.** Nincs emberi jóváhagyás (Mihály döntése, jóváhagyott eltérés). Védelem helyette: az Execution csak paper számlán ad le megbízást (`DU`-val kezdődő account ID), és az ibkrfacade `IBKR_ALLOW_LIVE=false` alapértelmezéssel tiltja a live számlát. **Élő számlánál az emberi jóváhagyás újra kötelező.**
-- **Nincs automatikus újrapróbálás**, csak timeout. A hibás taszk `FAILED`, naplózódik; a következő ütemezett futás (napi scan, heti review) úgyis újra előveszi a témát.
+- **Nincs automatikus újrapróbálás**, csak timeout. A hibás taszk `FAILED`, naplózódik; a következő ütemezett futás (napi scan, napi review) úgyis újra előveszi a témát.
 - **Idempotencia:** minden megbízás `decision_id`-t kap, ez az ibkrfacade `client_order_id`-ja (IBKR `orderRef`). Ugyanarra a döntésre soha nem megy ki két megbízás.
 
 ## Taszk-állapotgép (A2A 1.0)

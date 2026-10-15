@@ -65,7 +65,8 @@ services:
     image: auxin-market-sentiment
     environment:
       <<: *db-env
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set in .env}
+      # Subscription quota only (Mihály); ANTHROPIC_API_KEY is never passed to a container.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?set in .env (claude setup-token)}
       # Only the Claude API goes through the proxy; A2A and Postgres stay on the internal network.
       HTTPS_PROXY: http://egress-proxy:3128
       HTTP_PROXY: http://egress-proxy:3128

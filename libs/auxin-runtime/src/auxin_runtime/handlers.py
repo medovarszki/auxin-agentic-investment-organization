@@ -8,7 +8,7 @@ from auxin_schemas.domain import Idea, MarketScanResult
 from auxin_schemas.metadata import MessageType
 from auxin_schemas.task import TaskState
 
-from auxin_runtime.descriptor import AgentDescriptor, build_options
+from auxin_runtime.descriptor import AgentDescriptor, build_options, require_subscription_auth
 from auxin_runtime.runner import run_task
 
 log = logging.getLogger("auxin.runtime")
@@ -16,6 +16,7 @@ log = logging.getLogger("auxin.runtime")
 
 def market_sentiment(desc: AgentDescriptor, agent_dir: Path) -> Handler:
     """scan_trigger: run the scan, then hand every idea to Research as its own task."""
+    require_subscription_auth()
     options = build_options(desc, agent_dir, MarketScanResult.model_json_schema())
 
     async def handle(msg: Incoming) -> dict:

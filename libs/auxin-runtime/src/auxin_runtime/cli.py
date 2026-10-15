@@ -17,7 +17,7 @@ from auxin_schemas.domain import MarketScanResult
 from auxin_schemas.metadata import MessageType
 from auxin_schemas.task import TaskState
 
-from auxin_runtime.descriptor import build_options, load_descriptor
+from auxin_runtime.descriptor import build_options, load_descriptor, require_subscription_auth
 from auxin_runtime.handlers import HANDLERS
 from auxin_runtime.runner import run_task
 
@@ -26,6 +26,7 @@ OUTPUTS = {"market-sentiment": MarketScanResult}
 
 
 def _run(agent_dir: Path, trigger: str) -> int:
+    require_subscription_auth()
     desc = load_descriptor(agent_dir / "agent.yaml")
     output_model = OUTPUTS[desc.name]
     options = build_options(desc, agent_dir, output_model.model_json_schema())

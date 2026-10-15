@@ -86,6 +86,18 @@ def _permission_rule(tool: str) -> str:
     return tool[: -len("__*")] if tool.endswith("__*") else tool
 
 
+def require_subscription_auth(env: Mapping[str, str] | None = None) -> None:
+    """Agents run on the owner's Claude subscription (CLAUDE_CODE_OAUTH_TOKEN), never on an API key.
+
+    The CLI prefers ANTHROPIC_API_KEY when both are set, which would silently bill the API instead.
+    """
+    env = os.environ if env is None else env
+    if env.get("ANTHROPIC_API_KEY"):
+        raise SystemExit("ANTHROPIC_API_KEY is set: agents must use CLAUDE_CODE_OAUTH_TOKEN (subscription quota)")
+    if not env.get("CLAUDE_CODE_OAUTH_TOKEN"):
+        raise SystemExit("CLAUDE_CODE_OAUTH_TOKEN is not set (create one with `claude setup-token`)")
+
+
 def build_options(
     desc: AgentDescriptor,
     workdir: Path,

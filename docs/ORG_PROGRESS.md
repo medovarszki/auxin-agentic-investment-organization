@@ -62,7 +62,7 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-14 | Squid a `/var/log/squid/*.log`-ba naplóz, ezeket az image entrypointja a stdout-ra tail-eli | A `proxy` user nem tudja megnyitni a `/dev/stdout`-ot (a squid induláskor elhalt) |
 | 2026-10-14 | A runner a `ClaudeSDKError`-t is `FAILED` taszkká alakítja | Az API-hiba eddig traceback-kel, `WORKING` állapotban hagyta a taszkot |
 | 2026-10-14 | WebSearch / WebFetch szerver-oldali: ellenőrizve | Élő scan: a proxy csak `api.anthropic.com` CONNECT-et látott, a kimenet 18 forrásdomaint idéz; az allowlist marad egyetlen host |
-| 2026-10-14 | `ANTHROPIC_API_KEY`: workspace-hez kötött Console-kulcs | A workspace nélküli kulcs 400-at ad (`anthropic-workspace-id` kell) |
+| 2026-10-14 | ~~`ANTHROPIC_API_KEY`: workspace-hez kötött Console-kulcs~~ → lásd 2026-10-15 | |
 | 2026-10-15 | **Egyelőre nincs A2A auth** (se token, se TLS); védelem csak az `internal` Docker-hálózat | **Jóváhagyott eltérés** (Mihály): előbb működő agent-hálózat, a jogosultságkezelés később |
 | 2026-10-15 | Az 5. fázisban nincs új unit teszt; bizonyíték a futó rendszer és a task tábla | Mihály döntése: később építjük be |
 | 2026-10-15 | Minden agent A2A szerver (`auxin-agent serve`, JSON-RPC + SSE, port 8000, Agent Card az `agent.yaml`-ból: a `messages.consumes` lesz a skill-lista); a kliens `trust_env=False`-szal megy, így a belső forgalom nem a proxyn át | Az A2A 1.0 alapértelmezése; a proxy csak a Claude API-é |
@@ -72,6 +72,34 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-15 | A Research az 5. fázisban LLM nélküli stub: validálja és elmenti az ötletet (`COMPLETED`); a valódi Research a 6. fázisban | Olcsó, az A2A-t önmagában bizonyítja |
 | 2026-10-15 | A scant egyelőre a `make scan` indítja (egy rövid életű `operator` container küldi a `scan_trigger`-t); a `scheduler` service a 6. fázisban | Mihály döntése (2.a) |
 | 2026-10-15 | Containerenként csak a szükséges env változó (a compose a gyökér `.env`-ből interpolál; a Research és a Postgres nem kapja meg az API-kulcsot) | Legkisebb jogosultság |
+| 2026-10-15 | A PM pozíció-review-ja **napi** (munkanapokon, 15:30), nem heti | Mihály döntése |
+| 2026-10-15 | ibkrfacade-bővítés kész (Mihály, `d744047`): Spring Boot 4.1.1, TWS API 10.50.01, Docker + compose (`gnzsnz/ib-gateway:10.50.1f`, Redis 8.8.3), idempotens `POST /order`, account summary, history, positions P&L, contract industry/category, hírek, read/write token, paper/live védelem; 54 unit teszt zöld (ellenőrizve) | Az Execution és a PM IBKR-oldala erre épül |
+| 2026-10-15 | IBKR MCP: egy szerver mindkét ibkrfacade-tokennel, a jogosultság a tool-allowlist (Execution: írás) | Mihály döntése (1.b) |
+| 2026-10-15 | Piaci adat: élő (`IBKR_MARKET_DATA_TYPE=1`, a live számla előfizetései megosztva a paperrel) | Mihály (2.a) |
+| 2026-10-15 | **Execution: determinisztikus service, nem LLM-agent** | Mihály (3.a): olcsóbb, kiszámítható, nincs prompt injection az író jog mellett |
+| 2026-10-15 | **Verify: determinisztikus ellenőrzés** (a megbízás egyezik a PM döntésével, a javaslattal és a szabályfájllal); nincs Research `verify_request` kör | Mihály (4.a) |
+| 2026-10-15 | Max. 3 ötlet / scan; kimarad, ami a portfólióban van vagy 30 napon belül elutasított (új információ nélkül) | Mihály (5.a) |
+| 2026-10-15 | Pozícióméret conviction szerint: 1–5 → 2 / 4 / 6 / 8 / 10% NAV, a szabályok és a szabad cash korlátjával | Mihály (6.a) |
+| 2026-10-15 | Csak szabad cash, nincs margin / tőkeáttétel | Mihály (7.a) |
+| 2026-10-15 | Deviza: az IBKR automatikus deviza-kölcsöne elfogadott (nincs külön FX-megbízás) | Mihály (8.a) |
+| 2026-10-15 | Megbízás csak az instrumentum kereskedési idejében megy ki; zárt piacnál a task store-ban vár a nyitásig | Mihály (9.a); az ibkrfacade 15 percnél régebbi árral 422-t ad |
+| 2026-10-15 | DAY megbízás; a zárásig nem teljesült rész törlődik, a PM új döntéssel (új `decision_id`) próbálhatja újra | Mihály (10.a) |
+| 2026-10-15 | **Napi review: minden nyitott pozíció teljes LLM-es Research-újraértékelést kap** | Mihály (11.b); ez a fő költségtényező |
+| 2026-10-15 | Ütemezés (Europe/Budapest, munkanapokon): **09:00 scan, 15:30 review** (US nyitás), **21:00 kiértékelés** | Mihály (12) |
+| 2026-10-15 | Nincs kötelező veszteség-trigger és nincs automatikus stop-loss | Mihály (13.c) |
+| 2026-10-15 | Az `idea_reject` a tudásbázisba kerül; a Market & Sentiment új információ nélkül nem javasolja újra | Mihály (14.a) |
+| 2026-10-15 | Hibáknál nincs értesítés, csak napló és dashboard | Mihály (16.a) |
+| 2026-10-15 | Feedback loop: **nincs benchmark**, a kiértékelés csak a pozíció lezárásakor történik; sikerkritérium: a hozam | Mihály (17, 18.b, 26.b) |
+| 2026-10-15 | Tudásbázis-keresés: Postgres full-text, pgvector később | Mihály (19.a) |
+| 2026-10-15 | Egyelőre nincs árhatás-számítás a cégmemóriában és nincs skill-/szabálymódosítási javaslat-folyamat | Mihály (20, 21) |
+| 2026-10-15 | Dashboard: saját egyszerű web UI, Postgres read-only, csak localhostra publikálva | Mihály (22.a) |
+| 2026-10-15 | Most nincs tesztelés (e2e, mock broker, rögzített LLM-kimenetek) | Mihály (24, 25) |
+| 2026-10-15 | Szektorszabály marad; forrásminőség a modellre bízva; futtatás Mihály gépén, lokális compose | Mihály (27.a, 28.b, 29.a) |
+| 2026-10-15 | ibkrfacade: ISIN és `subcategory` pótlása a contract-válaszban (prompt: `auxin/ibkrfacade-prompt-isin.md`) | Mihály (30.b) |
+| 2026-10-15 | **Claude-hozzáférés: csak Mihály előfizetésének kerete** (`CLAUDE_CODE_OAUTH_TOKEN`, `claude setup-token`); `ANTHROPIC_API_KEY` sehol, a runtime megáll, ha be van állítva; nincs USD-költségplafon | Mihály döntése (15.); az Anthropic support szerint (2026-06) az Agent SDK saját belépéssel az előfizetés keretéből fogy. Kockázat: a heti keret közös Mihály saját Claude-használatával |
+| 2026-10-15 | Trace-backend: Jaeger all-in-one, lokálisan (7. fázis) | Mihály (23.a) |
+| 2026-10-15 | **Portfolio Manager: LLM-agent marad** (a szabálykaput és a conviction-méretezést a runtime determinisztikusan ellenőrzi a kimenetén, a döntés indoklása az LLM-é) | Mihály döntése (6. fázis terv, 1.b) |
+| 2026-10-15 | **Tudásbázis-írás: a runtime menti** a Research strukturált kimenetéből (javaslat, elutasítás, tanulság, cégjegyzet); az LLM-agentek csak olvasnak (MCP) | Mihály (6. fázis terv, 2.a): nincs író tool az LLM kezében |
 
 ## Feltételezések (megerősítésre várnak)
 
@@ -80,12 +108,10 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 
 ## Nyitott kérdések
 
-- Sikerkritérium (benchmarkhoz mért teljesítmény, döntések indokolhatósága)?
 - A szektorszabály felülvizsgálata (jelenleg ideiglenes).
-- ibkrfacade-bővítés (Mihály, külön session): idempotens `POST /order`, számlaösszesítő, historikus ár, hírek, contract-besorolás, tokenek, containerizálás; a TWS API jar 2019-es.
 - A `usage.server_tool_use.web_search_requests` 0, holott volt keresés: a Claude Code a WebSearch-öt külön al-hívásban futtatja. A valódi keresés- és költségszámot a runtime-nak kell majd gyűjtenie (a `cost_usd` tartalmazza-e az al-hívást? ellenőrizendő).
-- Forrásminőség: az első scan gyenge forrásokat is idézett (pl. babypips.com, gokhshtein.com); kell-e forrásminőségi szabály vagy domain-preferencia a skillbe?
-- Költség: kb. 0,80 USD / scan; az ütemezés gyakoriságát az `AUXIN_DAILY_COST_CAP_USD`-hez kell igazítani.
+- Előfizetési keret: kell-e napi taszk-limit, hogy az agentek ne fogyasszák el a heti keretet (a napi teljes review pozíciónként fut)?
+- Működik-e a `CLAUDE_CODE_OAUTH_TOKEN` az Agent SDK-val (a doksi explicit nem írja): az első élő futás dönti el.
 - A2A auth (agentenkénti token, ki kitől mit fogadhat el) és TLS a belső forgalomra: később (Mihály).
 - Unit tesztek az `auxin-a2a`-hoz (metaadat-elutasítás, timeout): később (Mihály).
 - A verifier a Research része, így a saját javaslatát nem független szem ellenőrzi; később a risk egységbe költöztethető.
@@ -94,6 +120,6 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 
 5. fázis élő teszt Mihály gépén: `make build && make up && make scan && make tasks`. Elvárt: egy `scan_trigger` taszk (market-sentiment) és ötletenként egy `idea` taszk (research), mind `COMPLETED`, közös trace-szel.
 
-Utána 6. fázis: döntési hurkok (valódi Research, PM, Execution, scheduler).
+Utána 6. fázis: döntési hurkok (terv: `auxin/phase6-plan.md` a projekt fájljai közt). A terv elfogadva, az indításra Mihály jelzése kell (2026-10-15: „egyelőre nem, még várunk”).
 
-Előfeltétel Mihály gépén: Docker CE, `make`, `uv`, kitöltött `.env` (workspace-hez kötött `ANTHROPIC_API_KEY`, `POSTGRES_PASSWORD`). Az ibkrfacade ugyanezen a gépen külön compose-projektben fut.
+Előfeltétel Mihály gépén: Docker CE, `make`, `uv`, kitöltött `.env` (`CLAUDE_CODE_OAUTH_TOKEN`, `POSTGRES_PASSWORD`; `ANTHROPIC_API_KEY` nincs). Az ibkrfacade ugyanezen a gépen külön compose-projektben fut.
