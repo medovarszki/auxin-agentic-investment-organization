@@ -29,9 +29,11 @@ sector:
   classification: IBKR_industry
   max_sector_weight_pct: 25.0
   # Egy új pozíció vagy növelés nem viheti a szektor összsúlyát a limit fölé.
+  # Minden ETF (szektor-ETF is) a diversified kategóriába esik: az IBKR industry ETF-eknél üres
+  # (Mihály, 2026-10-16, 1.b). A szektorsúlyba csak a részvények számítanak.
   etf_treatment:
-    sector_etf: counts_to_sector          # pl. technológiai szektor-ETF -> Information Technology
-    broad_etf: diversified                # széles piaci / több szektoros ETF
+    sector_etf: diversified
+    broad_etf: diversified
   diversified_bucket:
     sector_limit_applies: false
     position_limit_applies: true          # a 10%-os pozíciólimit rájuk is érvényes

@@ -1,5 +1,5 @@
 # Agents as A2A servers on an internal network, tasks in one shared Postgres table, broker data through the
-# IBKR MCP server (phase 6.1).
+# IBKR MCP server (phase 6.1), memory in the knowledge service (phase 6.2).
 # Run from the repo root: make up / make scan / make tasks (see Makefile).
 name: auxin
 
@@ -44,7 +44,7 @@ services:
     cpus: 0.5
     mem_limit: 256m
 
-  # Shared A2A task store (table a2a_tasks); later also portfolio mirror and knowledge base.
+  # Shared database: A2A task store (a2a_tasks) and the knowledge base tables (owned by the knowledge service).
   postgres:
     image: postgres:18.6
     environment: *db-env
@@ -74,12 +74,15 @@ services:
       # Only the Claude API goes through the proxy; A2A and Postgres stay on the internal network.
       HTTPS_PROXY: http://egress-proxy:3128
       HTTP_PROXY: http://egress-proxy:3128
-      NO_PROXY: localhost,127.0.0.1,postgres,market-sentiment,research,mcp-ibkr
+      NO_PROXY: localhost,127.0.0.1,postgres,market-sentiment,research,mcp-ibkr,knowledge
       AUXIN_MCP_IBKR_URL: http://mcp-ibkr:8000/mcp
+      AUXIN_MCP_KNOWLEDGE_BASE_URL: http://knowledge:8000/mcp
+      AUXIN_KNOWLEDGE_URL: http://knowledge:8000
     depends_on:
       egress-proxy: {condition: service_started}
       postgres: {condition: service_healthy}
       mcp-ibkr: {condition: service_started}
+      knowledge: {condition: service_healthy}
 
   research:
     <<: *agent-hardening
@@ -101,6 +104,20 @@ services:
     environment:
       IBKRFACADE_URL: http://ibkrfacade:8082/ibkr
     networks: [agents, ibkr-backend]
+    cpus: 0.5
+    mem_limit: 256m
+
+  # Knowledge base (decisions, company_notes, lessons): REST for the deterministic writers, MCP (/mcp) with
+  # read-only tools for the agents. Applies its Alembic migrations on start. No auth for now (Mihály).
+  knowledge:
+    <<: *agent-hardening
+    build:
+      context: ../..
+      dockerfile: services/knowledge/Dockerfile
+    image: auxin-knowledge
+    environment: *db-env
+    depends_on:
+      postgres: {condition: service_healthy}
     cpus: 0.5
     mem_limit: 256m
 

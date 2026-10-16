@@ -1,5 +1,5 @@
-# Shared base image for every Auxin agent and MCP server (auxin-agent-base). It does not run on its own;
-# each agents/<name>/Dockerfile (and mcp-servers/<name>/Dockerfile) builds on it.
+# Shared base image for every Auxin agent, MCP server and Python service (auxin-agent-base). It does not run on its own;
+# each agents/<name>/Dockerfile (and mcp-servers/<name>/, services/<name>/ Dockerfile) builds on it.
 # Build from the repo root: docker build -f agents/Dockerfile -t auxin-agent-base .
 FROM python:3.12.15-slim
 
@@ -15,6 +15,7 @@ WORKDIR /src
 COPY pyproject.toml uv.lock .python-version ./
 COPY libs ./libs
 COPY mcp-servers/ibkr ./mcp-servers/ibkr
+COPY services/knowledge ./services/knowledge
 RUN uv sync --frozen --no-dev --no-editable \
     && rm -rf /src /root/.cache
 

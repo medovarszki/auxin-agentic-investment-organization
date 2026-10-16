@@ -5,17 +5,20 @@ from pathlib import Path
 from auxin_a2a.client import send, task_summary
 from auxin_a2a.server import Handler, Incoming
 from auxin_schemas.domain import Idea, MarketScanResult
+from auxin_schemas.knowledge import DecisionKind, DecisionRecord
 from auxin_schemas.metadata import MessageType
 from auxin_schemas.task import TaskState
 
 from auxin_runtime.descriptor import AgentDescriptor, build_options, require_subscription_auth
+from auxin_runtime.knowledge import record_decision
 from auxin_runtime.runner import run_task
 
 log = logging.getLogger("auxin.runtime")
 
 
 def market_sentiment(desc: AgentDescriptor, agent_dir: Path) -> Handler:
-    """scan_trigger: run the scan, then hand every idea to Research as its own task."""
+    """scan_trigger: run the scan, record every idea in the decision log, then hand it to Research as its own
+    task."""
     require_subscription_auth()
     options = build_options(desc, agent_dir, MarketScanResult.model_json_schema())
 
@@ -29,6 +32,19 @@ def market_sentiment(desc: AgentDescriptor, agent_dir: Path) -> Handler:
 
         handoffs = []
         for idea in scan.ideas:
+            await record_decision(DecisionRecord(
+                id=idea.idea_id,
+                kind=DecisionKind.IDEA,
+                agent=desc.name,
+                summary=idea.thesis,
+                conid=idea.instrument.conid,
+                symbol=idea.instrument.symbol,
+                idea_id=idea.idea_id,
+                payload=idea.model_dump(mode="json"),
+                correlation_id=msg.meta.correlation_id,
+                trace_id=msg.meta.trace_id,
+                task_id=msg.task_id,
+            ))
             task = await send(
                 sender=desc.name,
                 recipient="research",

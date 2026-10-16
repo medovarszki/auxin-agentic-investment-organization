@@ -8,6 +8,7 @@ dependencies = [
     "auxin-a2a",
     "claude-agent-sdk==0.2.166",
     "pyyaml==6.0.3",
+    "httpx==0.28.1",
 ]
 
 [project.scripts]

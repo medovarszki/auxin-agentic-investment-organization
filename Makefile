@@ -4,7 +4,8 @@ IBKRFACADE_DIR ?= ../ibkrfacade
 IBKR = cd $(IBKRFACADE_DIR) && docker compose
 PSQL = $(COMPOSE) exec -T postgres sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -P pager=off -c "$$0"'
 
-.PHONY: test validate base build up ibkr-up ibkr-down ibkr-check mcp-check scan tasks logs scan-local egress-test down
+.PHONY: test validate base build up ibkr-up ibkr-down ibkr-check mcp-check kb-check scan tasks decisions db-revision logs \
+	scan-local egress-test down
 
 test:            ## unit tests
 	uv run pytest -q
@@ -15,10 +16,10 @@ validate:        ## agent.yaml / org.yaml consistency
 base:            ## shared agent base image
 	docker build -f agents/Dockerfile -t auxin-agent-base .
 
-build: base      ## agent and MCP server images
+build: base      ## agent, MCP server and service images
 	$(COMPOSE) build
 
-up: ibkr-up      ## broker stack, egress proxy, Postgres and the agent A2A servers
+up: ibkr-up      ## broker stack, egress proxy, Postgres, knowledge service and the agent A2A servers
 	$(COMPOSE) up -d
 
 ibkr-up:         ## the ibkrfacade stack (gateway, Redis, facade), built from its checkout
@@ -42,8 +43,22 @@ ibkr-check:      ## broker stack: health, paper account, one price (AAPL); never
 mcp-check: up    ## IBKR MCP server: tool list, AAPL contract and price, account summary (no orders)
 	$(COMPOSE) run --rm -T --entrypoint python operator - < scripts/mcp_check.py
 
-logs:            ## agent and MCP logs (JSON events)
-	$(COMPOSE) logs -f market-sentiment research mcp-ibkr
+kb-check: up     ## knowledge service: health, latest decisions, rejections, MCP tools and a search (read-only)
+	$(COMPOSE) run --rm -T -e AUXIN_KNOWLEDGE_URL=http://knowledge:8000 --entrypoint python operator - < scripts/kb_check.py
+
+decisions:       ## the decision log (knowledge base), newest first
+	$(PSQL) "SELECT created_at, kind, agent, symbol, conid, left(summary, 70) AS summary, left(trace_id, 8) AS trace \
+	  FROM decisions ORDER BY created_at DESC LIMIT 30"
+
+# Schema change: edit services/knowledge/src/auxin_knowledge/db.py, then make db-revision m="what changed";
+# review the generated file under migrations/versions and commit it. The service applies it on start.
+db-revision: build up
+	$(COMPOSE) run --rm --no-deps --user $$(id -u):$$(id -g) \
+	  -v $(CURDIR)/services/knowledge/src/auxin_knowledge/migrations:/migrations \
+	  --entrypoint alembic knowledge -c /migrations/alembic.ini revision --autogenerate -m "$(m)"
+
+logs:            ## agent, MCP and knowledge logs (JSON events)
+	$(COMPOSE) logs -f market-sentiment research mcp-ibkr knowledge
 
 scan-local: up   ## phase 4 one-shot run without A2A
 	$(COMPOSE) run --rm market-sentiment run --trigger scan

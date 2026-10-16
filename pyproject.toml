@@ -2,7 +2,7 @@
 name = "auxin"
 version = "0.1.0"
 requires-python = ">=3.12"
-dependencies = ["auxin-schemas", "auxin-runtime", "auxin-a2a", "auxin-mcp-ibkr"]
+dependencies = ["auxin-schemas", "auxin-runtime", "auxin-a2a", "auxin-mcp-ibkr", "auxin-knowledge"]
 
 [tool.uv]
 package = false
@@ -12,9 +12,10 @@ auxin-schemas = { workspace = true }
 auxin-runtime = { workspace = true }
 auxin-a2a = { workspace = true }
 auxin-mcp-ibkr = { workspace = true }
+auxin-knowledge = { workspace = true }
 
 [tool.uv.workspace]
-members = ["libs/*", "mcp-servers/ibkr"]
+members = ["libs/*", "mcp-servers/ibkr", "services/knowledge"]
 
 [dependency-groups]
 dev = ["pytest==9.1.1", "pyyaml==6.0.3", "jsonschema==4.26.0"]
