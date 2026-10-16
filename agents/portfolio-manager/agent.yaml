@@ -1,8 +1,8 @@
 name: portfolio-manager
 unit: core
-role: Befektetési döntés a Research javaslatairól (BUY / REJECT, indoklással); a szabálykaput és a méretezést a runtime alkalmazza.
+role: Befektetési döntés a Research javaslatairól (BUY / REJECT, indoklással); a szabálykaput és a méretezést a runtime alkalmazza; napi review (runtime) a Research újraértékelése alapján.
 model: claude-opus-5-5
-# 6.3: proposal-review; a napi pozíció-review (6.4) skillje a saját fázisában jön
+# 6.3: proposal-review; a napi review (6.4) determinisztikus: a Research javaslatát a runtime hajtja végre, LLM-hívás nélkül
 skills: [proposal-review]
 tools:
   # csak olvasó IBKR toolok; megbízás-tool nincs (az Execution adja le)
@@ -10,7 +10,7 @@ tools:
 mcp_servers: [ibkr, knowledge-base]
 messages:
   consumes: [proposal, review_result, review_trigger]
-  produces: [proposal_reject, order, review_request]
+  produces: [proposal_reject, order, review_request, execute_pending]
 permissions: {ibkr: read, knowledge_base: read}
 egress: []
 schedule:

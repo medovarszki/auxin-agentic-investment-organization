@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 
 TASK_TIMEOUT = timedelta(minutes=60)  # the chain scan -> Research -> PM -> Execution is synchronous (6.3)
+# The daily review runs one Research re-evaluation per open position, one after the other (6.4)
+TASK_TIMEOUTS = {"review_trigger": timedelta(hours=4)}
 MAX_REJECTION_ROUNDS = 2
 
 
@@ -36,6 +38,10 @@ def transition(current: TaskState, new: TaskState) -> TaskState:
     if new not in ALLOWED_TRANSITIONS[current]:
         raise InvalidTransition(f"{current} -> {new} is not allowed")
     return new
+
+
+def task_timeout(message_type: str) -> timedelta:
+    return TASK_TIMEOUTS.get(message_type, TASK_TIMEOUT)
 
 
 def is_timed_out(working_since: datetime, now: datetime) -> bool:

@@ -24,7 +24,7 @@ from starlette.applications import Starlette
 
 from auxin_a2a.store import open_task_store
 from auxin_schemas.metadata import EXTENSION_URI, MessageMetadata
-from auxin_schemas.task import TASK_TIMEOUT
+from auxin_schemas.task import task_timeout
 
 log = logging.getLogger("auxin.a2a")
 
@@ -76,7 +76,7 @@ def agent_card(name: str, description: str, accepts: list[str], url: str) -> Age
 
 
 class AuxinExecutor(AgentExecutor):
-    """Validates the metadata, runs the handler with the 10-minute timeout, records the result."""
+    """Validates the metadata, runs the handler with its message type's timeout, records the result."""
 
     def __init__(self, agent: str, accepts: list[str], handler: Handler):
         self.agent = agent
@@ -122,15 +122,16 @@ class AuxinExecutor(AgentExecutor):
         await updater.start_work()
         payloads = get_data_parts(message.parts)
         incoming = Incoming(meta=meta, payload=payloads[0] if payloads else {}, task_id=task.id)
+        timeout = task_timeout(meta.type)
         try:
-            result = await asyncio.wait_for(self.handler(incoming), TASK_TIMEOUT.total_seconds())
+            result = await asyncio.wait_for(self.handler(incoming), timeout.total_seconds())
         except Rejected as exc:
             _event("task_rejected", **log_fields, error=str(exc))
             await updater.reject(new_text_message(str(exc)))
             return
         except TimeoutError:
-            _event("task_failed", **log_fields, error=f"timeout after {TASK_TIMEOUT}")
-            await updater.failed(new_text_message(f"timeout after {TASK_TIMEOUT}"))
+            _event("task_failed", **log_fields, error=f"timeout after {timeout}")
+            await updater.failed(new_text_message(f"timeout after {timeout}"))
             return
         except Exception as exc:  # noqa: BLE001 - any handler error ends the task FAILED, no retry
             log.exception("handler failed")

@@ -7,7 +7,7 @@ effective_from: 2026-10-14
 universe:
   asset_classes: [stock, etf]
   regions: global
-  long_only: true            # nincs short; az eladás csak csökkentés vagy zárás
+  long_only: true            # nincs short; az eladás csak csökkentés vagy zárás (Execution: SELL <= tartott mennyiség)
 
 instrument:
   # Egyértelmű azonosítás: mindegyik kötelező, az ISIN ha elérhető
@@ -49,5 +49,5 @@ approvals:
 
 orders:
   default_type: MKT
-  task_timeout_minutes: 10
+  task_timeout_minutes: 60    # a napi review taszkja (review_trigger): 240
   automatic_retry: false

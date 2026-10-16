@@ -162,6 +162,25 @@ class OrderReject(_Model):
     detail: str = ""
 
 
+class Holding(_Model):
+    """An open position as the daily review sees it (values in the base currency)."""
+
+    instrument: Instrument
+    quantity: float = Field(gt=0)
+    avg_cost: float = Field(ge=0)
+    market_price: float = Field(gt=0)
+    market_value: float
+    weight_pct: float  # market_value / NAV * 100
+    unrealized_pnl: float | None = None
+
+
+class ReviewRequest(_Model):
+    """PM -> Research: re-evaluate one open position; `entry` is the decision-log story of the buy, if any."""
+
+    holding: Holding
+    entry: dict | None = None  # the BUY proposal (thesis, target, horizon, risks, invalidation) and its order
+
+
 class ReviewResult(_Model):
     conid: int = Field(gt=0)
     recommendation: Literal["HOLD", "REDUCE", "CLOSE"]

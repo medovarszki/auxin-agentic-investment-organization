@@ -14,7 +14,7 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 3. Feladat- és üzenetmodell | kész: [`docs/TASK_MODEL.md`](TASK_MODEL.md), `libs/auxin-schemas` (29 teszt) |
 | 4. Agent-container sablon | kész: base image, `libs/auxin-runtime`, Market & Sentiment, egress proxy, compose; élő teszt Mihály gépén (2026-10-14): 40 teszt, egress OK, első scan `COMPLETED` (0,80 USD, 8 turn, 2 ötlet) |
 | 5. Kommunikációs réteg | kész: `libs/auxin-a2a`, A2A szerverek, Postgres task store, `make scan` / `make tasks`; élő teszt OK (2026-10-15) |
-| 6. Döntési hurkok | 6.1 kész (IBKR MCP, élő teszt OK); 6.2 kész (`services/knowledge`, élő teszt OK); 6.3 kész (élő teszt OK: első paper fill); 6.4–6.5 hátravan |
+| 6. Döntési hurkok | 6.1 kész (IBKR MCP, élő teszt OK); 6.2 kész (`services/knowledge`, élő teszt OK); 6.3 kész (élő teszt OK: első paper fill); 6.4 kész (élő teszt: HOLD, a SELL-ág élesben még nem futott); 6.5 hátravan |
 | 7–9. | nincs elkezdve |
 
 ## Döntési napló
@@ -131,6 +131,9 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-16 | Első élő scan (Mihály, trace `3acce09d`): XLV → `idea_reject` (nincs 15% upside); SU (Schneider Electric, EUR) → `proposal` → PM BUY → kapu `proposal_reject` (EUR ≠ USD). Javítás: a Market & Sentiment `idea-generation` és a Research `idea-challenge` skillje csak USD-s instrumentumot (US listing / ADR) enged (a kapu szabályának a promptban is meg kell jelennie) | Ne menjen kör nem kereskedhető ötletre |
 | 2026-10-16 | **6.3 élő teszt kész** (trace `443e36c5`, 15:41 CEST): TSM (TSMC ADR, conid 6223250) idea → proposal (conviction 3) → PM BUY → kapu: 144 db, ~59 993 USD (6% NAV) → Execution: paper számla OK, piac nyitva, `POST /order` MKT DAY → IBKR order 1 → **Filled 144 @ 416.62 USD**, jutalék ~1.00 USD (4 részletben, ~5 s alatt). Pozíció az IBKR-ben: 144 TSM | Az első paper megbízás Mihály 4.b döntése alapján |
 | 2026-10-16 | Javítások a teszt után: az Execution 5 s után egyszer nézett státuszt (még `working`) → most legfeljebb 6 × 5 s-ig; a fillt a `make execute-pending` rögzítette, de trace nélkül, mert a `GET /decisions` nem adta vissza a `trace_id` / `correlation_id` / `task_id` mezőt → a részletes lekérdezés most visszaadja. A fill sor trace-ét egyszeri SQL `UPDATE` pótolta az order sorból | A lánc egy trace-en látszik |
+| 2026-10-16 | 6.4 döntések: a Research review-javaslatát a PM runtime LLM-hívás nélkül hajtja végre (1.a); minden nyitott pozíció minden nap review-t kap, a frisseket is (2.b); a review-k egymás után, egy `review_trigger` taszkban, timeout 4 óra (3.a); REDUCE = floor((jelenlegi súly − cél-súly) × NAV / ár), legalább 1 db, legfeljebb a tartott mennyiség, a nem kisebb cél-súly HOLD (4.a) | Mihály |
+| 2026-10-16 | **6.4 napi review és eladás (kód)**: `review_trigger` → PM runtime: `execute_pending` az Executionnek, majd pozíciónként (IBKR MCP: számla, pozíciók, contract) `review_request` (`ReviewRequest`: `Holding` + a vételi javaslat és order a naplóból) a Researchnek → Research (LLM, `position-review` skill) → `ReviewResult` (HOLD / REDUCE / CLOSE), `review` napló-bejegyzés → `auxin_schemas.rules.size_sell` → SELL `order` (napló, pillanatkép) → Execution (új ellenőrzés: SELL ≤ tartott mennyiség, különben `MISMATCH`). A Research eredménye a taszk artifactja (nincs külön `review_result` üzenet). Timeout taszktípusonként (`auxin_schemas.task.task_timeout`): `review_trigger` 4 óra, a többi 60 perc; a `portfolio-rules.yaml` `task_timeout_minutes` 10 → 60. `make review` | Terv 6.4 |
+| 2026-10-16 | **6.4 élő teszt** (trace `02a888cc`, 18:12 CEST): `execute_pending` (üres) → TSM review (5.97% NAV) → Research: **HOLD** (célár 490 USD, ~18% upside, egyik exit-trigger sem teljesült; 5 datált forrás, 6 turn, ~0.23 nominál USD) → nincs megbízás; mind `COMPLETED`, a `review` a naplóban. A REDUCE / CLOSE → SELL ág és az Execution SELL-ellenőrzése élesben még nem futott (a méretezés offline ellenőrizve: CLOSE 144, REDUCE 6→3% 71 db) | Az első valódi eladás az első REDUCE / CLOSE javaslatnál |
 
 ## Feltételezések (megerősítésre várnak)
 
@@ -148,6 +151,6 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 
 ## Következő lépés
 
-6.4 napi review és eladás: minden nyitott pozícióra (most: 144 TSM) Research-újraértékelés → HOLD / REDUCE (cél-súllyal) / CLOSE → SELL `order` az Executionnek; kezdés döntéssel és kérdésekkel.
+6.5: `services/scheduler` (APScheduler; munkanapokon 09:00 scan, 15:30 review, 21:00 kiértékelés) és `services/decision-evaluator` (a lezárt pozíciók realizált hozama → `decision_outcome` → Research → `lesson`); kezdés döntéssel és kérdésekkel.
 
 Előfeltétel Mihály gépén: Docker CE, `make`, `uv`, kitöltött `.env` (`CLAUDE_CODE_OAUTH_TOKEN`, `POSTGRES_PASSWORD`; `ANTHROPIC_API_KEY` nincs). Az ibkrfacade ugyanezen a gépen külön compose-projektben fut.

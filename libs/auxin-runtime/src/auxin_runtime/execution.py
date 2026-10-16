@@ -1,6 +1,6 @@
 """Execution: deterministic, no LLM. The only Auxin component with access to ibkrfacade's order endpoint.
 
-verify (paper account, matches the PM decision in the decision log) -> market open? -> POST /order (MKT, DAY,
+verify (paper account, matches the PM decision in the decision log, a SELL not above the held quantity) -> market open? -> POST /order (MKT, DAY,
 client_order_id = decision_id) -> status checks for up to 30 s -> fill. A closed market leaves the order pending in the log;
 `execute_pending` (15:30 run, until then make execute-pending) places it and follows up submitted orders.
 """
@@ -71,6 +71,11 @@ async def _verify(http: httpx.AsyncClient, order: Order, entry: dict | None) -> 
     if (logged.order_id, logged.instrument.conid, logged.side, logged.quantity) != (
             order.order_id, order.instrument.conid, order.side, order.quantity):
         return OrderRejectReason.MISMATCH, "order differs from the PM decision in the decision log"
+    if order.side == "SELL":  # long only: never sell more than held
+        positions = (await http.get("/positions")).json()
+        held = sum(float(p.get("quantity") or 0) for p in positions if p.get("conid") == order.instrument.conid)
+        if order.quantity > held:
+            return OrderRejectReason.MISMATCH, f"SELL {order.quantity:g} > held {held:g} (long only)"
     return None
 
 

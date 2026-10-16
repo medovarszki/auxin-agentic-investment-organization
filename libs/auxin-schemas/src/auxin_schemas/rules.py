@@ -1,5 +1,5 @@
 """Deterministic entry checks from org/rules/portfolio-rules.yaml (the parts a single proposal can decide)."""
-from auxin_schemas.domain import Proposal
+from auxin_schemas.domain import Holding, Proposal, ReviewResult
 
 
 def check_entry(proposal: Proposal, rules: dict) -> list[str]:
@@ -72,4 +72,26 @@ def size_buy(
     }
     if quantity < 1:
         raise GateReject(details["binding_limit"], f"no room for one share: {details['limits']}")
+    return quantity, details
+
+
+def size_sell(review: ReviewResult, holding: Holding, *, nav: float, price: float) -> tuple[int, dict]:
+    """Quantity to sell after a review (decision 6.4, 4.a); 0 = no order.
+
+    CLOSE: the whole position. REDUCE: floor((current weight - target weight) * NAV / price), at least 1 share,
+    never more than held; a target weight not below the current one counts as HOLD.
+    """
+    held = int(holding.quantity)
+    weight = holding.market_value / nav * 100
+    details = {"recommendation": review.recommendation, "held": held, "price": price, "nav": nav,
+               "weight_pct": round(weight, 2), "target_weight_pct": review.target_weight_pct}
+    if review.recommendation == "CLOSE":
+        quantity = held
+    elif review.recommendation == "REDUCE" and review.target_weight_pct < weight:
+        quantity = min(held, max(1, int((weight - review.target_weight_pct) / 100 * nav // price)))
+    else:
+        quantity = 0
+        if review.recommendation == "REDUCE":
+            details["note"] = "target weight not below the current weight: HOLD"
+    details |= {"quantity": quantity, "order_value": round(quantity * price, 2)}
     return quantity, details

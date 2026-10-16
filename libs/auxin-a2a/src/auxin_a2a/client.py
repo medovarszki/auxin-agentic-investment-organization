@@ -12,7 +12,7 @@ from google.protobuf.json_format import MessageToDict
 
 from auxin_a2a.server import PORT
 from auxin_schemas.metadata import EXTENSION_URI, MessageMetadata, MessageType
-from auxin_schemas.task import TASK_TIMEOUT
+from auxin_schemas.task import task_timeout
 
 log = logging.getLogger("auxin.a2a")
 
@@ -67,7 +67,7 @@ async def send(
         reference_task_ids=reference_task_ids or [],
     )
     # Internal traffic never goes through the egress proxy (trust_env=False ignores HTTPS_PROXY).
-    timeout = httpx.Timeout(30.0, read=TASK_TIMEOUT.total_seconds() + 60)
+    timeout = httpx.Timeout(30.0, read=task_timeout(type).total_seconds() + 60)
     async with httpx.AsyncClient(timeout=timeout, trust_env=False) as http:
         card = await A2ACardResolver(http, agent_url(recipient)).get_agent_card()
         client = ClientFactory(ClientConfig(streaming=True, httpx_client=http)).create(card)
