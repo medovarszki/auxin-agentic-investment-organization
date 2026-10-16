@@ -8,7 +8,7 @@ import os
 
 import httpx
 
-from auxin_schemas.knowledge import DecisionRecord, Written
+from auxin_schemas.knowledge import DecisionRecord, Lesson, Written
 
 log = logging.getLogger("auxin.runtime")
 
@@ -18,19 +18,27 @@ def knowledge_url() -> str | None:
     return url.rstrip("/") if url else None
 
 
-async def record_decision(record: DecisionRecord) -> Written | None:
-    """Idempotent (same id twice is a no-op). A failed write raises: the decision log must not lose entries."""
+async def _write(path: str, record: DecisionRecord | Lesson, kind: str) -> Written | None:
     url = knowledge_url()
     if url is None:
         log.info(json.dumps({"event": "kb_skipped", "reason": "AUXIN_KNOWLEDGE_URL not set", "id": str(record.id)}))
         return None
     async with httpx.AsyncClient(base_url=url, timeout=httpx.Timeout(15.0), trust_env=False) as http:
-        response = await http.post("/decisions", json=record.model_dump(mode="json"))
+        response = await http.post(path, json=record.model_dump(mode="json"))
         response.raise_for_status()
     written = Written.model_validate(response.json())
-    log.info(json.dumps({"event": "kb_recorded", "kind": record.kind, "id": str(written.id),
-                         "created": written.created}))
+    log.info(json.dumps({"event": "kb_recorded", "kind": kind, "id": str(written.id), "created": written.created}))
     return written
+
+
+async def record_decision(record: DecisionRecord) -> Written | None:
+    """Idempotent (same id twice is a no-op). A failed write raises: the decision log must not lose entries."""
+    return await _write("/decisions", record, record.kind)
+
+
+async def record_lesson(lesson: Lesson) -> Written | None:
+    """Idempotent, like record_decision."""
+    return await _write("/lessons", lesson, "lesson")
 
 
 async def get_decisions(**params) -> list[dict]:

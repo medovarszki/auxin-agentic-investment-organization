@@ -16,6 +16,7 @@ COPY pyproject.toml uv.lock .python-version ./
 COPY libs ./libs
 COPY mcp-servers/ibkr ./mcp-servers/ibkr
 COPY services/knowledge ./services/knowledge
+COPY services/scheduler ./services/scheduler
 RUN uv sync --frozen --no-dev --no-editable \
     && rm -rf /src /root/.cache
 

@@ -17,7 +17,7 @@ EXTERNAL_PRODUCERS = {
     "scan_trigger": "scheduler",
     "review_trigger": "scheduler",
     "execute_pending": "scheduler",
-    "decision_outcome": "decision-evaluator",
+    "decision_outcome": "scheduler",  # its evaluate job (the decision evaluator, 6.5)
 }
 
 

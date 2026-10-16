@@ -196,14 +196,28 @@ class ReviewResult(_Model):
 
 
 class DecisionOutcome(_Model):
-    decision_id: UUID
-    evaluated_at: datetime
+    """A closed position (sells added up to the bought quantity), computed from the fills in the decision log.
+    No benchmark (decision 2026-10-15); return_pct = realized_pnl / cost * 100, commissions included."""
+
+    decision_id: UUID  # the PM decision of the closing SELL
+    conid: int = Field(gt=0)
+    symbol: str = Field(min_length=1)
+    quantity: float = Field(gt=0)
+    cost: float = Field(gt=0)
+    proceeds: float = Field(ge=0)
+    commission: float = Field(ge=0)
     realized_pnl: float
-    unrealized_pnl: float
     return_pct: float
-    benchmark_return_pct: float
-    target_reached: bool
-    horizon_elapsed: bool
+    opened_at: datetime
+    closed_at: datetime
+    holding_days: int = Field(ge=0)
+    evaluated_at: datetime = Field(default_factory=_now)
+
+
+class LessonDraft(_Model):
+    """Research's structured output for a decision_outcome; the runtime writes it to the lessons table."""
+
+    lesson: str = Field(min_length=1)
 
 
 def is_paper_account(account_id: str) -> bool:

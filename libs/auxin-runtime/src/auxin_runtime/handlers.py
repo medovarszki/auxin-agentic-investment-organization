@@ -10,17 +10,17 @@ import yaml
 from auxin_a2a.client import send, task_summary
 from auxin_a2a.server import Handler, Incoming, Rejected
 from auxin_schemas.domain import (
-    Holding, Idea, IdeaReject, Instrument, MarketScanResult, Order, PMDecision, Proposal, ProposalReject,
-    ResearchOutput, ReviewRequest, ReviewResult,
+    DecisionOutcome, Holding, Idea, IdeaReject, Instrument, LessonDraft, MarketScanResult, Order, PMDecision,
+    Proposal, ProposalReject, ResearchOutput, ReviewRequest, ReviewResult,
 )
-from auxin_schemas.knowledge import DecisionKind, DecisionRecord
+from auxin_schemas.knowledge import DecisionKind, DecisionRecord, Lesson
 from auxin_schemas.metadata import MessageType
 from auxin_schemas.task import TaskState
 
 from auxin_runtime.descriptor import AgentDescriptor, build_options, require_subscription_auth
 from auxin_runtime.execution import execute, execute_pending
 from auxin_runtime.ibkr import read_tools
-from auxin_runtime.knowledge import get_decisions, record_decision
+from auxin_runtime.knowledge import get_decisions, record_decision, record_lesson
 from auxin_schemas.rules import GateReject, size_buy, size_sell
 from auxin_runtime.runner import run_task
 
@@ -97,10 +97,21 @@ async def _llm(desc: AgentDescriptor, prompt: str, options, model, msg: Incoming
 
 def research(desc: AgentDescriptor, agent_dir: Path) -> Handler:
     """idea: challenge it -> proposal (to the PM) or idea_reject; review_request: re-evaluate one open position
-    -> HOLD / REDUCE / CLOSE back to the PM (the task's artifact). Everything goes to the decision log."""
+    -> HOLD / REDUCE / CLOSE back to the PM (the task's artifact); decision_outcome: a closed position's result
+    -> lesson (lessons table). The runtime writes everything to the knowledge base."""
     require_subscription_auth()
     options = build_options(desc, agent_dir, ResearchOutput.model_json_schema())
     review_options = build_options(desc, agent_dir, ReviewResult.model_json_schema())
+    lesson_options = build_options(desc, agent_dir, LessonDraft.model_json_schema())
+
+    async def lesson(msg: Incoming) -> dict:
+        outcome = DecisionOutcome.model_validate(msg.payload)
+        out, usage = await _llm(desc, _prompt(agent_dir, "outcome", msg.payload), lesson_options, LessonDraft, msg)
+        written = await record_lesson(Lesson(
+            id=uuid.uuid5(outcome.decision_id, "lesson"), agent=desc.name, lesson=out.lesson,
+            decision_id=outcome.decision_id, conid=outcome.conid, symbol=outcome.symbol,
+            return_pct=outcome.return_pct, task_id=msg.task_id))
+        return {"lesson": out.lesson, "created": written.created if written else None, **usage}
 
     async def review(msg: Incoming) -> dict:
         request = ReviewRequest.model_validate(msg.payload)
@@ -118,6 +129,8 @@ def research(desc: AgentDescriptor, agent_dir: Path) -> Handler:
     async def handle(msg: Incoming) -> dict:
         if msg.meta.type == MessageType.REVIEW_REQUEST:
             return await review(msg)
+        if msg.meta.type == MessageType.DECISION_OUTCOME:
+            return await lesson(msg)
         idea = Idea.model_validate(msg.payload)
         out, usage = await _llm(desc, _prompt(agent_dir, "idea", msg.payload), options, ResearchOutput, msg)
         ref = {"conid": idea.instrument.conid, "symbol": idea.instrument.symbol, "idea_id": idea.idea_id, **_ctx(msg)}

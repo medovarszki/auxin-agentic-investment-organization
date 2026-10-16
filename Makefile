@@ -4,7 +4,7 @@ IBKRFACADE_DIR ?= ../ibkrfacade
 IBKR = cd $(IBKRFACADE_DIR) && docker compose
 PSQL = $(COMPOSE) exec -T postgres sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -P pager=off -c "$$0"'
 
-.PHONY: test validate base build up ibkr-up ibkr-down ibkr-check mcp-check kb-check scan review tasks decisions db-revision execute-pending logs \
+.PHONY: test validate base build up ibkr-up ibkr-down ibkr-check mcp-check kb-check scan review run-job tasks decisions db-revision execute-pending logs \
 	scan-local egress-test down
 
 test:            ## unit tests
@@ -46,6 +46,9 @@ mcp-check: up    ## IBKR MCP server: tool list, AAPL contract and price, account
 review: up       ## daily review: PM -> execute_pending, then one Research review per open position, SELL on REDUCE / CLOSE
 	$(COMPOSE) run --rm operator trigger --to portfolio-manager --type review_trigger
 
+run-job: up      ## run a scheduler job now: make run-job job=scan|review|evaluate
+	$(COMPOSE) run --rm --no-deps scheduler run-job $(job)
+
 execute-pending: up  ## Execution: place the orders pending since a closed market, follow up the submitted ones
 	$(COMPOSE) run --rm operator trigger --to execution --type execute_pending
 
@@ -63,8 +66,8 @@ db-revision: build up
 	  -v $(CURDIR)/services/knowledge/src/auxin_knowledge/migrations:/migrations \
 	  --entrypoint alembic knowledge -c /migrations/alembic.ini revision --autogenerate -m "$(m)"
 
-logs:            ## agent, Execution, MCP and knowledge logs (JSON events)
-	$(COMPOSE) logs -f market-sentiment research portfolio-manager execution mcp-ibkr knowledge
+logs:            ## agent, Execution, MCP, knowledge and scheduler logs (JSON events)
+	$(COMPOSE) logs -f market-sentiment research portfolio-manager execution mcp-ibkr knowledge scheduler
 
 scan-local: up   ## phase 4 one-shot run without A2A
 	$(COMPOSE) run --rm market-sentiment run --trigger scan

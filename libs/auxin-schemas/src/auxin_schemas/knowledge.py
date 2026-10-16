@@ -23,6 +23,7 @@ class DecisionKind(StrEnum):
     ORDER_REJECT = "order_reject"
     FILL = "fill"
     REVIEW = "review"
+    DECISION_OUTCOME = "decision_outcome"
 
 
 REJECTION_KINDS = (DecisionKind.IDEA_REJECT, DecisionKind.PROPOSAL_REJECT)

@@ -13,7 +13,7 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 
 | Egység | Állapot | Pozíciók |
 |---|---|---|
-| **Core** (befektetési egység) | működik (vétel, napi review és eladás); ütemezés és tanulás épül | Market & Sentiment, Research, Portfolio Manager, Execution |
+| **Core** (befektetési egység) | működik (vétel, napi review és eladás, ütemezés, tanulság) | Market & Sentiment, Research, Portfolio Manager, Execution |
 | Risk | tervezett | független kockázatkezelés, limitfelügyelet |
 | Compliance | tervezett | szabálymegfelelés, audit |
 | Operations | tervezett | elszámolás, egyeztetés a brokerrel |
@@ -35,7 +35,7 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 | Pozíció | Típus | Állapot | Felelősség | Fogad | Küld |
 |---|---|---|---|---|---|
 | **Market & Sentiment** | LLM-agent | működik | napi piaci összkép, sentiment, narratíva; legfeljebb 3 ötlet IBKR conidra oldva; kihagyja, ami a portfólióban van vagy 30 napon belül elutasított | `scan_trigger` | `idea` |
-| **Research** | LLM-agent | működik (6.3) | ötlet-kritika és research (web, IBKR, tudásbázis); javaslat célárral, horizonttal, ≥3 kockázattal, ≥3 datált forrással, conviction 1–5; napi pozíció-újraértékelés (`position-review`: HOLD / REDUCE cél-súllyal / CLOSE); tanulság a lezárt pozíciókból (6.5) | `idea`, `review_request`, `decision_outcome` | `proposal`, `idea_reject`, `review_result`, `lesson` |
+| **Research** | LLM-agent | működik (6.3) | ötlet-kritika és research (web, IBKR, tudásbázis); javaslat célárral, horizonttal, ≥3 kockázattal, ≥3 datált forrással, conviction 1–5; napi pozíció-újraértékelés (`position-review`: HOLD / REDUCE cél-súllyal / CLOSE); tanulság a lezárt pozíciókból (`lesson`, a runtime írja a `lessons` táblába) | `idea`, `review_request`, `decision_outcome` | `proposal`, `idea_reject`, `review_result`, `lesson` |
 | **Portfolio Manager** | LLM-agent + determinisztikus szabálykapu | működik (6.3) | dönt a javaslatról (indoklással); a runtime ellenőrzi a szabályokat és méretez (az IBKR MCP-n át olvas; zárt piacnál az utolsó záróárral); napi review: a runtime a Research javaslatát LLM nélkül hajtja végre (REDUCE / CLOSE → SELL) | `proposal`, `review_trigger` | `order`, `proposal_reject`, `review_request`, `execute_pending` |
 | **Execution** | determinisztikus service | működik (6.3) | ellenőrzés (paper számla, egyezés a PM döntésével a naplóban, SELL ≤ tartott mennyiség, friss ár), megbízás csak kereskedési időben (zárt piacnál függő, `make execute-pending` / 15:30), market / DAY, idempotens (`client_order_id = decision_id`); az egyetlen IBKR írási joggal | `order`, `execute_pending` | `fill`, `order_reject` |
 
@@ -46,8 +46,8 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 | `services/knowledge` | működik | a tudásbázis egyetlen gazdája: döntési napló, cégjegyzetek, tanulságok; REST az írásra, MCP (csak olvasás) az agenteknek |
 | `mcp-servers/ibkr` | működik | csak olvasó IBKR-toolok az agenteknek (ár, history, hírek, contract, pozíciók, számla) |
 | ibkrfacade (külön repó) | működik | REST az IB Gateway fölött; paper/live védelem, idempotens order |
-| `services/scheduler` | tervezett (6.5) | munkanapokon 09:00 scan, 15:30 review, 21:00 kiértékelés (Europe/Budapest) |
-| `services/decision-evaluator` | tervezett (6.5) | a lezárt pozíciók realizált hozama → `decision_outcome` a Researchnek |
+| `services/scheduler` | működik (6.5) | munkanapokon (hétfő–péntek, Europe/Budapest) 09:00 scan, 15:30 review, 21:00 kiértékelés; kézzel: `make run-job job=...` |
+| döntés-kiértékelő (a scheduler `evaluate` jobja) | működik (6.5) | a lezárt pozíciók realizált hozama a fill-ekből (benchmark nélkül) → `decision_outcome` a naplóba és a Researchnek |
 | dashboard, trace (Jaeger) | tervezett (7.) | feladatok, döntések, portfólió áttekintése |
 
 ### Folyamatok
@@ -69,7 +69,11 @@ scheduler ─review_trigger─► Portfolio Manager ─execute_pending─► Exe
 ```
 Minden nyitott pozíció minden nap teljes Research-újraértékelést kap (a frissen vett is). A Research javaslatát a PM runtime LLM nélkül hajtja végre: CLOSE = a teljes pozíció, REDUCE = lefelé kerekítve (jelenlegi súly − cél-súly) × NAV / ár, legalább 1 db. Nincs veszteség-trigger és stop-loss.
 
-**Feedback (naponta 21:00):** a lezárt pozíciók realizált hozama → Research → tanulság a tudásbázisba. Szabály-, skill- vagy promptmódosítást csak Mihály hagy jóvá.
+**Feedback (naponta 21:00):**
+```
+scheduler (evaluate) ─► döntési napló fill-jei ─► lezárt pozíció? ─decision_outcome─► Research ─► tanulság (lessons)
+```
+Lezárt egy pozíció, ha az eladások kiadják a vett mennyiséget; hozam = (bevétel − költség − jutalék) / költség, benchmark nélkül. A tanulságokat a Research a következő ötleteknél, javaslatoknál és review-knál a tudásbázisból olvassa. Szabály-, skill- vagy promptmódosítást csak Mihály hagy jóvá.
 
 ### Befektetési szabályok (röviden)
 
@@ -98,7 +102,7 @@ Minden nyitott pozíció minden nap teljes Research-újraértékelést kap (a fr
 | `agents/` | 1 könyvtár = 1 szerep = 1 container: `agent.yaml`, `CLAUDE.md`, saját `skills/`, `Dockerfile` (az Execution determinisztikus, ugyanazzal a runtime-mal) |
 | `libs/` | Importált Python kód (sémák, A2A-réteg, agent runtime); önállóan nem fut |
 | `mcp-servers/` | Saját MCP szerverek (IBKR) |
-| `services/` | Futó, nem-agent containerek (tudásbázis; később scheduler, decision-evaluator) |
+| `services/` | Futó, nem-agent containerek (tudásbázis, scheduler a döntés-kiértékelővel) |
 | `infra/` | Compose, egress allowlist |
 | `docs/` | Haladási napló, szervezeti terv, ADR-ek |
 
@@ -111,6 +115,7 @@ make build && make up     # broker stack, Postgres, tudásbázis, agentek
 make scan                 # egy napi scan kézi indítása
 make tasks                # a közös task tábla
 make decisions            # a döntési napló
+make run-job job=evaluate  # egy scheduler-job kézi indítása (scan | review | evaluate)
 make review               # napi review kézi indítása (függő megbízások, pozíciónkénti újraértékelés, eladás)
 make execute-pending      # zárt piac miatt függő megbízások leadása
 ```

@@ -151,6 +151,25 @@ services:
     cpus: 0.5
     mem_limit: 256m
 
+  # Timed triggers on workdays (Europe/Budapest): 09:00 scan, 15:30 review, 21:00 evaluate (decision evaluator).
+  # Deterministic: no Claude token, no IBKR access; A2A and the knowledge REST on the internal network only.
+  scheduler:
+    <<: *agent-hardening
+    build:
+      context: ../..
+      dockerfile: services/scheduler/Dockerfile
+    image: auxin-scheduler
+    environment:
+      AUXIN_KNOWLEDGE_URL: http://knowledge:8000
+    depends_on:
+      knowledge: {condition: service_healthy}
+      market-sentiment: {condition: service_started}
+      research: {condition: service_started}
+      portfolio-manager: {condition: service_started}
+      execution: {condition: service_started}
+    cpus: 0.5
+    mem_limit: 256m
+
   # One-shot sender for manual triggers: make scan. Not a long-running service.
   operator:
     <<: *agent-hardening
