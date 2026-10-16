@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 from enum import StrEnum
 
-TASK_TIMEOUT = timedelta(minutes=10)
+TASK_TIMEOUT = timedelta(minutes=60)  # the chain scan -> Research -> PM -> Execution is synchronous (6.3)
 MAX_REJECTION_ROUNDS = 2
 
 

@@ -1,25 +1,17 @@
-# Vázlat (1. fázis). Modell-ID, egress és limitek a 2. és 4. fázisban véglegesek.
 name: research
 unit: core
-role: Ötlet-kritika és research, cégmemória, pozíció-újraértékelés; verifier szerep (megbízás-ellenőrzés).
-also_acts_as: [verifier]
+role: Ötlet-kritika és research → javaslat vagy elutasítás; később pozíció-újraértékelés és tanulságok.
 model: claude-opus-5-5
-skills:
-  - idea-challenge
-  - fundamental-analysis
-  - supply-chain-and-peers
-  - company-memory
-  - position-review
-  - order-verification
-  - lesson-writing
+# 6.3: idea-challenge; a pozíció-review (6.4) és a tanulság-írás (6.5) skillje a saját fázisában jön
+skills: [idea-challenge]
 tools:
   # WebSearch / WebFetch: szerver-oldali (Anthropic API), a 4. fázisban ellenőrizve
   allow: [WebSearch, WebFetch, mcp__ibkr__get_price, mcp__ibkr__get_history, mcp__ibkr__get_news, mcp__ibkr__get_contract, mcp__ibkr__search_contract, mcp__knowledge-base__*]
 mcp_servers: [ibkr, knowledge-base]
 messages:
-  consumes: [idea, review_request, verify_request, decision_outcome]
-  produces: [proposal, idea_reject, review_result, verify_result, lesson]
-permissions: {ibkr: read, knowledge_base: read_write}  # ibkr: csak piaci adat és contract
+  consumes: [idea, review_request, decision_outcome]
+  produces: [proposal, idea_reject, review_result, lesson]
+permissions: {ibkr: read, knowledge_base: read}  # a tudásbázisba a runtime ír a strukturált kimenetből
 egress: []
 limits: {max_concurrent_tasks: 2, max_turns: 80}
 budget: {daily_usd: 30}

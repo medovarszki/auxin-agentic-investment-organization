@@ -14,7 +14,7 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 3. Feladat- és üzenetmodell | kész: [`docs/TASK_MODEL.md`](TASK_MODEL.md), `libs/auxin-schemas` (29 teszt) |
 | 4. Agent-container sablon | kész: base image, `libs/auxin-runtime`, Market & Sentiment, egress proxy, compose; élő teszt Mihály gépén (2026-10-14): 40 teszt, egress OK, első scan `COMPLETED` (0,80 USD, 8 turn, 2 ötlet) |
 | 5. Kommunikációs réteg | kész: `libs/auxin-a2a`, A2A szerverek, Postgres task store, `make scan` / `make tasks`; élő teszt OK (2026-10-15) |
-| 6. Döntési hurkok | 6.1 kész (IBKR MCP, élő teszt OK); 6.2 kész (`services/knowledge`, élő teszt OK); 6.3–6.5 hátravan |
+| 6. Döntési hurkok | 6.1 kész (IBKR MCP, élő teszt OK); 6.2 kész (`services/knowledge`, élő teszt OK); 6.3 kód kész, élő teszt hátravan; 6.4–6.5 hátravan |
 | 7–9. | nincs elkezdve |
 
 ## Döntési napló
@@ -120,6 +120,12 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-16 | **A szervezeti modell a README-ben**, naprakészen tartva (egységek, pozíciók, folyamatok, szabályok, ellenőrzési pontok); a `docs/ORG.md` történeti | Mihály kérése |
 | 2026-10-16 | **MVP-szemlélet**: opcióknál az implementációban legegyszerűbb az alapértelmezés; a meglévő (MVP-n túli) elemeket nem bontjuk vissza | Mihály |
 | 2026-10-16 | 6.3: a lánc szinkron marad, `TASK_TIMEOUT` 10 → 60 perc; a PM-kapu az IBKR MCP-n át olvas (csak az MCP és az Execution van az `ibkr-backend` hálózaton); zárt piacnál függő megbízás, a 15:30-as futás (addig `make execute-pending`) adja le; azonnal éles paper megbízás; nincs visszadobási kör (MVP-eltérés a „max. 2 kör” szabálytól); Research cégjegyzet nélkül, Execution egyszeri státusz-lekérdezéssel | Mihály (1: legegyszerűbb, 2: magyarázat után, 3.b, 4.b) |
+| 2026-10-16 | **6.3 vételi hurok (kód)**: Research (LLM, `idea-challenge` skill) → `ResearchOutput` (propose / reject); PM (LLM, `proposal-review` skill) → `PMDecision` (BUY / REJECT) → a runtime-kapu (`auxin_schemas.rules.size_buy`) az IBKR MCP-n át olvas (számla, pozíciók, contract, ár) és méretez; Execution: determinisztikus handler ugyanabban a runtime-ban (`agents/execution`, `kind: deterministic`, nincs Claude-token), egyedül ő van az `ibkr-backend`-en. Napló-események: idea, idea_reject, proposal, proposal_reject, order (`snapshot`-tal), `order_submitted` (új), fill, order_reject; determinisztikus esemény-id (`uuid5(decision_id, kind)`) → idempotens | Terv 6.3 |
+| 2026-10-16 | Az Execution `agents/execution` alatt marad (nem `services/execution`), mert ugyanazt az A2A runtime-ot használja; az `agent.schema.json` kapott egy `kind` mezőt (`llm` / `deterministic`) | Legegyszerűbb: nincs külön A2A-szerverkód |
+| 2026-10-16 | PM-kapu ár: friss quote (ask, különben last); zárt piacnál / `stale` esetén az utolsó napi záróár (`get_history`), `snapshot.price_source = last_close`; a leadáshoz az ibkrfacade úgyis friss bid/askot kér (422 → `order_reject NO_PRICE`) | A 09:00-s scan az US-piac nyitása előtt fut |
+| 2026-10-16 | MVP-korlátok a kapuban: csak bázisdevizás instrumentum (nincs FX-adat; a többi `proposal_reject currency`), meglévő pozíció nem növelhető (`already_held`); a szabad cash = min(`total_cash_value`, `available_funds`) | Egyszerűség; nyitott kérdés lesz, ha nem-USD ötletek jönnek |
+| 2026-10-16 | A Research verifier-szerepe és a `verify_request` / `verify_result` / `order_draft` üzenetek kikerültek az `agent.yaml`-okból (a verify determinisztikus, 2026-10-15) | Leíró = valóság |
+| 2026-10-16 | Élő teszt akadálya: az IBKR `10197 No market data during competing live session` / „Trading TWS session is connected from a different IP address”: amíg a live felhasználó máshol (TWS, Client Portal, mobil) be van lépve, a paper Gateway nem kap árat és historikus adatot | Mihálynak ki kell lépnie a másik sessionből |
 | 2026-10-16 | **Nincs portfólió-tükör** (`positions_mirror`, `account_mirror` kimarad): pozíció és számla élőben az ibkrfacade-ből; minden döntés mellé pillanatkép (NAV, cash, érintett pozíciók) a `decisions` sorban; tükör a 7. fázisban, a dashboarddal | Mihály (3.a): egyszerűség |
 
 ## Feltételezések (megerősítésre várnak)
@@ -138,6 +144,6 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 
 ## Következő lépés
 
-6.3 vételi hurok: valódi Research (LLM) → `proposal` / `idea_reject` (a tudásbázisba is), PM (LLM) → `order` / `proposal_reject` determinisztikus szabálykapuval és conviction-méretezéssel, Execution determinisztikus service (verify, kereskedési idő, `POST /order` MKT/DAY, fill-követés). Az első paper megbízás előtt megállni és kérdezni.
+6.3 élő teszt: a live IBKR-session bezárása után `make scan` (US piacnyitás, 15:30 CEST után közvetlen leadás; előtte függő megbízás, majd `make execute-pending`), `make tasks`, `make decisions`; elvárt: a teljes lánc egy trace-en, a naplóban idea → proposal / idea_reject → order / proposal_reject → order_submitted → fill. Utána 6.4 napi review és eladás.
 
 Előfeltétel Mihály gépén: Docker CE, `make`, `uv`, kitöltött `.env` (`CLAUDE_CODE_OAUTH_TOKEN`, `POSTGRES_PASSWORD`; `ANTHROPIC_API_KEY` nincs). Az ibkrfacade ugyanezen a gépen külön compose-projektben fut.

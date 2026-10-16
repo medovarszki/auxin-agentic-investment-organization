@@ -12,6 +12,7 @@ SCHEMA_VERSION = "1"
 class MessageType(StrEnum):
     SCAN_TRIGGER = "scan_trigger"
     REVIEW_TRIGGER = "review_trigger"
+    EXECUTE_PENDING = "execute_pending"
     MARKET_VIEW = "market_view"
     IDEA = "idea"
     IDEA_REJECT = "idea_reject"

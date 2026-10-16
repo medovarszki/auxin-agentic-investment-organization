@@ -11,3 +11,65 @@ def check_entry(proposal: Proposal, rules: dict) -> list[str]:
     if proposal.instrument.asset_class not in rules["universe"]["asset_classes"]:
         violations.append(f"asset class {proposal.instrument.asset_class} not allowed")
     return violations
+
+
+class GateReject(Exception):
+    """The deterministic PM gate rejected the order; `rule` names the broken rule."""
+
+    def __init__(self, rule: str, reason: str):
+        super().__init__(f"{rule}: {reason}")
+        self.rule = rule
+        self.reason = reason
+
+
+# Conviction 1-5 -> target position size in % of NAV (decision 6.a).
+CONVICTION_WEIGHT_PCT = {1: 2.0, 2: 4.0, 3: 6.0, 4: 8.0, 5: 10.0}
+
+
+def size_buy(
+    proposal: Proposal,
+    rules: dict,
+    *,
+    nav: float,
+    cash: float,
+    base_currency: str,
+    price: float,
+    industry: str | None,
+    holdings: list[dict],
+) -> tuple[int, dict]:
+    """Quantity of a new BUY under the portfolio rules, and how it was computed.
+
+    holdings: open positions as {conid, market_value, industry, asset_class}; values in the base currency.
+    Raises GateReject when no order is allowed. MVP: only instruments in the account's base currency (no FX).
+    """
+    inst = proposal.instrument
+    if inst.currency != base_currency:
+        raise GateReject("currency", f"{inst.currency} != base currency {base_currency} (no FX conversion in the MVP)")
+    if any(h["conid"] == inst.conid for h in holdings):
+        raise GateReject("already_held", f"{inst.symbol} is already in the portfolio")
+    upside = (proposal.target_price - price) / price * 100
+    min_upside = rules["entry"]["min_upside_pct"]
+    if upside < min_upside:
+        raise GateReject("min_upside_pct", f"upside {upside:.1f}% at {price} < {min_upside}%")
+
+    weight_pct = min(CONVICTION_WEIGHT_PCT[proposal.conviction], rules["position"]["max_new_position_weight_pct"])
+    amount = nav * weight_pct / 100
+    limits = {"conviction": amount, "cash": cash}
+    sector_used = None
+    # Sector limit: stocks only; every ETF is in the diversified bucket (decision 1.b).
+    if inst.asset_class == "stock" and industry:
+        sector_used = sum(h["market_value"] for h in holdings
+                          if h.get("asset_class") == "stock" and h.get("industry") == industry)
+        limits["sector"] = nav * rules["sector"]["max_sector_weight_pct"] / 100 - sector_used
+    amount = min(limits.values())
+    quantity = int(amount // price)
+    details = {
+        "price": price, "upside_pct": round(upside, 2), "conviction": proposal.conviction,
+        "target_weight_pct": weight_pct, "nav": nav, "cash": cash, "industry": industry,
+        "sector_value_before": sector_used, "limits": {k: round(v, 2) for k, v in limits.items()},
+        "binding_limit": min(limits, key=limits.get), "quantity": quantity,
+        "order_value": round(quantity * price, 2),
+    }
+    if quantity < 1:
+        raise GateReject(details["binding_limit"], f"no room for one share: {details['limits']}")
+    return quantity, details

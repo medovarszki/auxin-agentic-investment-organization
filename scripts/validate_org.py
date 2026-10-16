@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 EXTERNAL_PRODUCERS = {
     "scan_trigger": "scheduler",
     "review_trigger": "scheduler",
+    "execute_pending": "scheduler",
     "decision_outcome": "decision-evaluator",
 }
 

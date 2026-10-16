@@ -44,10 +44,10 @@ def test_states_match_a2a_names():
     }
 
 
-def test_timeout_is_ten_minutes():
+def test_timeout_is_sixty_minutes():
     start = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)
-    assert not is_timed_out(start, start + timedelta(minutes=9, seconds=59))
-    assert is_timed_out(start, start + timedelta(minutes=10))
+    assert not is_timed_out(start, start + timedelta(minutes=59, seconds=59))
+    assert is_timed_out(start, start + timedelta(minutes=60))
 
 
 def test_max_two_rejection_rounds():

@@ -1,19 +1,19 @@
-# Vázlat (1. fázis). Modell-ID, egress és limitek a 2. és 4. fázisban véglegesek.
 name: portfolio-manager
 unit: core
-role: Portfóliókapu a szabályfájl szerint, pozícióméretezés, napi pozíció-review.
+role: Befektetési döntés a Research javaslatairól (BUY / REJECT, indoklással); a szabálykaput és a méretezést a runtime alkalmazza.
 model: claude-opus-5-5
-skills: [rule-check, position-sizing, portfolio-review]
+# 6.3: proposal-review; a napi pozíció-review (6.4) skillje a saját fázisában jön
+skills: [proposal-review]
 tools:
-  # csak olvasó IBKR toolok; a megbízásleadás tool nincs az allowlistben
-  allow: [mcp__ibkr__get_positions, mcp__ibkr__get_price, mcp__ibkr__get_account_summary, mcp__ibkr__get_contract, mcp__knowledge-base__search]
+  # csak olvasó IBKR toolok; megbízás-tool nincs (az Execution adja le)
+  allow: [mcp__ibkr__get_positions, mcp__ibkr__get_price, mcp__ibkr__get_account_summary, mcp__ibkr__get_contract, mcp__ibkr__get_history, mcp__ibkr__get_news, mcp__knowledge-base__search, mcp__knowledge-base__get_company_history, mcp__knowledge-base__get_recent_rejections]
 mcp_servers: [ibkr, knowledge-base]
 messages:
-  consumes: [proposal, review_result, verify_result, fill, order_reject, review_trigger]
-  produces: [proposal_reject, order_draft, verify_request, order, review_request]
+  consumes: [proposal, review_result, review_trigger]
+  produces: [proposal_reject, order, review_request]
 permissions: {ibkr: read, knowledge_base: read}
 egress: []
 schedule:
   - {name: daily-position-review, cron: "30 15 * * 1-5"}  # Europe/Budapest
-limits: {max_concurrent_tasks: 1, max_turns: 60}
+limits: {max_concurrent_tasks: 1, max_turns: 40}
 budget: {daily_usd: 15}

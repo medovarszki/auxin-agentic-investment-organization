@@ -31,3 +31,14 @@ async def record_decision(record: DecisionRecord) -> Written | None:
     log.info(json.dumps({"event": "kb_recorded", "kind": record.kind, "id": str(written.id),
                          "created": written.created}))
     return written
+
+
+async def get_decisions(**params) -> list[dict]:
+    """GET /decisions (kind may be a list); raises if the knowledge service is not configured or fails."""
+    url = knowledge_url()
+    if url is None:
+        raise RuntimeError("AUXIN_KNOWLEDGE_URL is not set")
+    async with httpx.AsyncClient(base_url=url, timeout=httpx.Timeout(15.0), trust_env=False) as http:
+        response = await http.get("/decisions", params=params)
+        response.raise_for_status()
+    return response.json()

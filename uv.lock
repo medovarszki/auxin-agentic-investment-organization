@@ -281,6 +281,7 @@ dependencies = [
     { name = "auxin-schemas" },
     { name = "claude-agent-sdk" },
     { name = "httpx" },
+    { name = "mcp" },
     { name = "pyyaml" },
 ]
 
@@ -290,6 +291,7 @@ requires-dist = [
     { name = "auxin-schemas", editable = "libs/auxin-schemas" },
     { name = "claude-agent-sdk", specifier = "==0.2.166" },
     { name = "httpx", specifier = "==0.28.1" },
+    { name = "mcp", specifier = "==2.3.0" },
     { name = "pyyaml", specifier = "==6.0.3" },
 ]
 

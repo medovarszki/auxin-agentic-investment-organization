@@ -1,11 +1,13 @@
 # Build from the repo root after the base image:
 #   docker build -f agents/research/Dockerfile -t auxin-research .
-# Phase 5: LLM-free stub that accepts and records ideas; the real Research agent comes in phase 6.
 ARG BASE_IMAGE=auxin-agent-base:latest
 FROM ${BASE_IMAGE}
 
+# Files stay owned by root: the agent can read but not change its own role, prompts or skills.
 USER root
-COPY agents/research/agent.yaml /agent/
+COPY agents/research/agent.yaml agents/research/CLAUDE.md /agent/
+COPY agents/research/prompts /agent/prompts
+COPY agents/research/skills /agent/.claude/skills
 USER agent
 
 CMD ["serve"]

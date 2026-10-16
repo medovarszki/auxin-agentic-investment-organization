@@ -19,6 +19,7 @@ class DecisionKind(StrEnum):
     PROPOSAL = "proposal"
     PROPOSAL_REJECT = "proposal_reject"
     ORDER = "order"
+    ORDER_SUBMITTED = "order_submitted"
     ORDER_REJECT = "order_reject"
     FILL = "fill"
     REVIEW = "review"

@@ -26,6 +26,7 @@ def proposal(**overrides) -> Proposal:
         market_price=100.0,
         target_price=120.0,
         horizon_weeks=26,
+        thesis="EUV demand outlasts the cycle",
         risks=["export controls", "cyclical demand", "valuation"],
         sources=SOURCES,
         conviction=4,

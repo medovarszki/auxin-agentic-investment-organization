@@ -21,6 +21,25 @@ x-db-env: &db-env
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
   POSTGRES_DB: ${POSTGRES_DB:?set in .env}
 
+# LLM agents: subscription token, Claude API through the proxy, MCP servers and the knowledge REST.
+x-llm-env: &llm-env
+  <<: *db-env
+  # Subscription quota only (Mihály); ANTHROPIC_API_KEY is never passed to a container.
+  CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?set in .env (claude setup-token)}
+  # Only the Claude API goes through the proxy; A2A, MCP and Postgres stay on the internal network.
+  HTTPS_PROXY: http://egress-proxy:3128
+  HTTP_PROXY: http://egress-proxy:3128
+  NO_PROXY: localhost,127.0.0.1,postgres,market-sentiment,research,portfolio-manager,execution,mcp-ibkr,knowledge
+  AUXIN_MCP_IBKR_URL: http://mcp-ibkr:8000/mcp
+  AUXIN_MCP_KNOWLEDGE_BASE_URL: http://knowledge:8000/mcp
+  AUXIN_KNOWLEDGE_URL: http://knowledge:8000
+
+x-llm-depends: &llm-depends
+  egress-proxy: {condition: service_started}
+  postgres: {condition: service_healthy}
+  mcp-ibkr: {condition: service_started}
+  knowledge: {condition: service_healthy}
+
 x-agent-hardening: &agent-hardening
   read_only: true
   cap_drop: [ALL]
@@ -67,22 +86,8 @@ services:
       context: ../..
       dockerfile: agents/market-sentiment/Dockerfile
     image: auxin-market-sentiment
-    environment:
-      <<: *db-env
-      # Subscription quota only (Mihály); ANTHROPIC_API_KEY is never passed to a container.
-      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?set in .env (claude setup-token)}
-      # Only the Claude API goes through the proxy; A2A and Postgres stay on the internal network.
-      HTTPS_PROXY: http://egress-proxy:3128
-      HTTP_PROXY: http://egress-proxy:3128
-      NO_PROXY: localhost,127.0.0.1,postgres,market-sentiment,research,mcp-ibkr,knowledge
-      AUXIN_MCP_IBKR_URL: http://mcp-ibkr:8000/mcp
-      AUXIN_MCP_KNOWLEDGE_BASE_URL: http://knowledge:8000/mcp
-      AUXIN_KNOWLEDGE_URL: http://knowledge:8000
-    depends_on:
-      egress-proxy: {condition: service_started}
-      postgres: {condition: service_healthy}
-      mcp-ibkr: {condition: service_started}
-      knowledge: {condition: service_healthy}
+    environment: *llm-env
+    depends_on: *llm-depends
 
   research:
     <<: *agent-hardening
@@ -90,11 +95,36 @@ services:
       context: ../..
       dockerfile: agents/research/Dockerfile
     image: auxin-research
-    environment: *db-env
+    environment: *llm-env
+    depends_on: *llm-depends
+
+  portfolio-manager:
+    <<: *agent-hardening
+    build:
+      context: ../..
+      dockerfile: agents/portfolio-manager/Dockerfile
+    image: auxin-portfolio-manager
+    environment: *llm-env
+    depends_on: *llm-depends
+
+  # Deterministic, no LLM, no Claude token. The only Auxin container besides mcp-ibkr on ibkr-backend: it alone
+  # reaches ibkrfacade's order endpoint (IBKR write access, CLAUDE.md).
+  execution:
+    <<: *agent-hardening
+    build:
+      context: ../..
+      dockerfile: agents/execution/Dockerfile
+    image: auxin-execution
+    environment:
+      <<: *db-env
+      IBKRFACADE_URL: http://ibkrfacade:8082/ibkr
+      AUXIN_KNOWLEDGE_URL: http://knowledge:8000
+    networks: [agents, ibkr-backend]
     depends_on:
       postgres: {condition: service_healthy}
+      knowledge: {condition: service_healthy}
 
-  # Read-only IBKR tools over ibkrfacade (no token for now, Mihály); the agents never reach ibkrfacade directly.
+  # Read-only IBKR tools over ibkrfacade (no token for now, Mihály); the LLM agents never reach ibkrfacade directly.
   mcp-ibkr:
     <<: *agent-hardening
     build:

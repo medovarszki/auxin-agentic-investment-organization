@@ -10,8 +10,9 @@
     "unit": {"type": "string"},
     "role": {"type": "string", "description": "Rövid szerepleírás; a részletes prompt a CLAUDE.md-ben"},
     "also_acts_as": {"type": "array", "items": {"type": "string"}},
-    "model": {"type": "string", "description": "Modell-ID; a 2. fázisban rögzítve"},
-    "skills": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}},
+    "kind": {"enum": ["llm", "deterministic"], "description": "llm (alapértelmezés) vagy determinisztikus service, pl. Execution"},
+    "model": {"type": "string", "description": "Modell-ID; determinisztikus service-nél \"none\""},
+    "skills": {"type": "array", "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"}},
     "tools": {
       "type": "object",
       "additionalProperties": false,
@@ -55,7 +56,7 @@
       "required": ["max_concurrent_tasks", "max_turns"],
       "properties": {
         "max_concurrent_tasks": {"type": "integer", "minimum": 1},
-        "max_turns": {"type": "integer", "minimum": 1},
+        "max_turns": {"type": "integer", "minimum": 0},
         "cpus": {"type": "number"},
         "memory": {"type": "string"}
       }
@@ -65,7 +66,7 @@
       "additionalProperties": false,
       "required": ["daily_usd"],
       "properties": {
-        "daily_usd": {"type": "number", "exclusiveMinimum": 0},
+        "daily_usd": {"type": "number", "minimum": 0},
         "per_run_usd": {"type": "number", "exclusiveMinimum": 0}
       }
     }

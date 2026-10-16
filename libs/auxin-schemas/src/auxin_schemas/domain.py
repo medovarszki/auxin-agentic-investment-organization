@@ -68,23 +68,61 @@ class MarketScanResult(_Model):
     ideas: list[Idea] = Field(max_length=3)  # decision 5.a
 
 
-class Proposal(_Model):
-    proposal_id: UUID = Field(default_factory=uuid4)
-    idea_id: UUID
+class ProposalBody(_Model):
+    """What Research fills in (its structured output); the runtime adds the ids."""
+
     instrument: Instrument
-    action: Literal["BUY"] = "BUY"
     market_price: float = Field(gt=0)
     target_price: float = Field(gt=0)
     horizon_weeks: int = Field(ge=2, le=60)
+    thesis: str = Field(min_length=1)
     risks: list[str] = Field(min_length=3)
     sources: list[Source] = Field(min_length=3)
     conviction: int = Field(ge=1, le=5)
     invalidation: str = Field(min_length=1)
-    created_at: datetime = Field(default_factory=_now)
 
     @property
     def upside_pct(self) -> float:
         return (self.target_price - self.market_price) / self.market_price * 100
+
+
+class Proposal(ProposalBody):
+    proposal_id: UUID = Field(default_factory=uuid4)
+    idea_id: UUID
+    action: Literal["BUY"] = "BUY"
+    created_at: datetime = Field(default_factory=_now)
+
+
+class ResearchOutput(_Model):
+    """Research's verdict on an idea: a proposal, or a rejection with the reason."""
+
+    verdict: Literal["propose", "reject"]
+    reason: str = Field(min_length=1)  # the rejection reason, or the one-paragraph case for the proposal
+    proposal: ProposalBody | None = None
+
+    @model_validator(mode="after")
+    def _propose_needs_proposal(self) -> "ResearchOutput":
+        if self.verdict == "propose" and self.proposal is None:
+            raise ValueError("verdict 'propose' requires a proposal")
+        return self
+
+
+class IdeaReject(_Model):
+    idea_id: UUID
+    reason: str = Field(min_length=1)
+
+
+class PMDecision(_Model):
+    """The Portfolio Manager's investment judgement on a proposal; sizing and rule checks are the runtime's."""
+
+    decision: Literal["BUY", "REJECT"]
+    rationale: str = Field(min_length=1)
+
+
+class ProposalReject(_Model):
+    proposal_id: UUID
+    reason: str = Field(min_length=1)
+    rule: str | None = None  # the broken portfolio rule, when the deterministic gate rejected it
 
 
 class Order(_Model):
@@ -115,6 +153,7 @@ class OrderRejectReason(StrEnum):
     MISMATCH = "MISMATCH"
     NOT_PAPER_ACCOUNT = "NOT_PAPER_ACCOUNT"
     BROKER_ERROR = "BROKER_ERROR"
+    CANCELLED = "CANCELLED"  # the DAY order expired or was cancelled unfilled
 
 
 class OrderReject(_Model):
