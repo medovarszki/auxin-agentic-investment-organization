@@ -14,7 +14,7 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 3. Feladat- és üzenetmodell | kész: [`docs/TASK_MODEL.md`](TASK_MODEL.md), `libs/auxin-schemas` (29 teszt) |
 | 4. Agent-container sablon | kész: base image, `libs/auxin-runtime`, Market & Sentiment, egress proxy, compose; élő teszt Mihály gépén (2026-10-14): 40 teszt, egress OK, első scan `COMPLETED` (0,80 USD, 8 turn, 2 ötlet) |
 | 5. Kommunikációs réteg | kész: `libs/auxin-a2a`, A2A szerverek, Postgres task store, `make scan` / `make tasks`; élő teszt OK (2026-10-15) |
-| 6. Döntési hurkok | 6.1 kész (IBKR MCP, élő teszt OK); 6.2 kód kész (`services/knowledge`), élő teszt hátravan; 6.3–6.5 hátravan |
+| 6. Döntési hurkok | 6.1 kész (IBKR MCP, élő teszt OK); 6.2 kész (`services/knowledge`, élő teszt OK); 6.3–6.5 hátravan |
 | 7–9. | nincs elkezdve |
 
 ## Döntési napló
@@ -113,6 +113,8 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-16 | Sémakezelés: **SQLAlchemy-modellek + Alembic autogenerate** (a Flyway megfelelője, de a migrációt a modellből generálja: `make db-revision m="..."`, átnézés, commit); a service induláskor `upgrade head`; saját verziótábla (`knowledge_alembic_version`), az autogenerate csak a saját tábláit nézi (az `a2a_tasks` az A2A rétegé). A generált tsvector-oszlopot és GIN-indexet is felismeri | Mihály: ne kelljen kézzel SQL-t karbantartani; Python-stack marad |
 | 2026-10-16 | Verziók (PyPI, `uv` feloldás 2026-10-16): alembic 1.20.0, fastapi 0.143.2; meglévő: sqlalchemy 2.1.4, asyncpg 0.32.0, mcp 2.3.0, uvicorn 0.54.0 | A webkeresés régebbit mutatott (1.18.4 / 0.136.3); a PyPI-index a mérvadó |
 | 2026-10-16 | **6.2 tudásbázis** (`services/knowledge`): táblák `decisions` (eseménynapló: idea, idea_reject, proposal, proposal_reject, order, order_reject, fill, review; `id` = a domain-objektum azonosítója, `idea_id` a láncot, `decision_id` a PM-döntést köti; `payload` és `snapshot` jsonb), `company_notes`, `lessons`; mindegyikben generált `tsvector` (english) + GIN. Írás csak REST-en, idempotensen (`ON CONFLICT DO NOTHING`); közös rekordmodellek: `auxin_schemas.knowledge`. A runtime minden ötletet a kiküldés előtt beír (`kind=idea`); sikertelen írásnál a scan `FAILED` (a napló nem veszíthet bejegyzést). MCP-szerver neve `knowledge-base` (`AUXIN_MCP_KNOWLEDGE_BASE_URL`). A Market & Sentiment kiszűri a portfólióban lévőt (`get_positions`) és a 30 napon belül elutasítottat (`get_recent_rejections`), kivéve új, forrással igazolt információnál | Terv 6.2; az (5.a) szűrés ezzel kész |
+| 2026-10-16 | **6.2 élő teszt kész** Mihály gépén (Docker CE): a `knowledge` container `healthy`, induláskor `upgrade -> 0001`; `make scan` → 1 ötlet (XLE, conid 4215217), a runtime beírta (`kb_recorded`, `kind=idea`, közös trace a task store-ral), mind `COMPLETED`, 16 turn; `make kb-check`: REST health, `decisions`, `rejections` (üres), 3 MCP tool, a `search` megtalálja az ötletet. Hogy az agent ténylegesen hívta-e a `get_positions` / `get_recent_rejections` toolt, a log nem mutatja (portfólió és tiltólista most üres) | A tudásbázis és a szűrés működik |
+| 2026-10-16 | Host: a snap-docker eltávolítva (letörölte a `/run/docker.sock`-ot; `systemctl restart docker.socket docker` után OK); a régi containerek hálózatai elvesztek, `make down` / `ibkr-down` után újraépültek | Csak Docker CE fut |
 | 2026-10-16 | Egy közös Postgres-role marad: az „egyedül a knowledge service ír” megállapodás, DB-jogosultsággal még nincs kikényszerítve | Mint az A2A-auth: később |
 | 2026-10-16 | Szabályfájl: `etf_treatment` → minden ETF `diversified` | Az ETF-döntés (1.b) rögzítése |
 | 2026-10-16 | **Nincs portfólió-tükör** (`positions_mirror`, `account_mirror` kimarad): pozíció és számla élőben az ibkrfacade-ből; minden döntés mellé pillanatkép (NAV, cash, érintett pozíciók) a `decisions` sorban; tükör a 7. fázisban, a dashboarddal | Mihály (3.a): egyszerűség |
@@ -124,7 +126,6 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 
 ## Nyitott kérdések
 
-- **Host: két Docker daemon fut** (2026-10-16): a `/var/run/docker.sock`-ot a snap-os dockerd szolgálja ki (`/var/snap/docker/...`), mellette fut a Docker CE (`/usr/bin/dockerd -H fd://`). A snap AppArmor-profilja miatt a containerek nem állíthatók le (`permission denied`); a döntés a Docker CE (lásd 2026-10-14). Mihálynak: `sudo snap remove docker` (vagy `snap stop --disable docker`), majd `sudo systemctl restart docker`.
 - A szektorszabály felülvizsgálata (jelenleg ideiglenes).
 - A `usage.server_tool_use.web_search_requests` 0, holott volt keresés: a Claude Code a WebSearch-öt külön al-hívásban futtatja. A valódi keresés- és költségszámot a runtime-nak kell majd gyűjtenie (a `cost_usd` tartalmazza-e az al-hívást? ellenőrizendő).
 - Előfizetési keret: kell-e napi taszk-limit, hogy az agentek ne fogyasszák el a heti keretet (a napi teljes review pozíciónként fut)?
@@ -134,6 +135,6 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 
 ## Következő lépés
 
-6.2 élő teszt Mihály gépén (Docker CE-vel): `make build && make up && make kb-check && make scan && make decisions && make kb-check`; elvárt: a `knowledge` container `healthy`, a táblák létrejöttek, a scan ötletei a `decisions` táblában (`kind=idea`, közös `trace_id`), az MCP `search` megtalálja őket. Utána 6.3 vételi hurok (Research LLM, PM, determinisztikus Execution).
+6.3 vételi hurok: valódi Research (LLM) → `proposal` / `idea_reject` (a tudásbázisba is), PM (LLM) → `order` / `proposal_reject` determinisztikus szabálykapuval és conviction-méretezéssel, Execution determinisztikus service (verify, kereskedési idő, `POST /order` MKT/DAY, fill-követés). Az első paper megbízás előtt megállni és kérdezni.
 
 Előfeltétel Mihály gépén: Docker CE, `make`, `uv`, kitöltött `.env` (`CLAUDE_CODE_OAUTH_TOKEN`, `POSTGRES_PASSWORD`; `ANTHROPIC_API_KEY` nincs). Az ibkrfacade ugyanezen a gépen külön compose-projektben fut.
