@@ -8,4 +8,4 @@ Futó, nem-agent containerek (determinisztikus kód, nincs LLM-döntés), mindeg
 - ~~`decision-evaluator/`~~: a scheduler `evaluate` jobja (Mihály, 6.5, 1.a): a döntési napló fill-jeiből a lezárt pozíciók (az eladások kiadják a vett mennyiséget) realizált hozama, benchmark nélkül → `decision_outcome` (napló) → Research → tanulság a `lessons` táblába
 - `ibkrfacade/`: az [ibkrfacade](https://github.com/medovarszki/ibkrfacade) és az IB Gateway futtatása (csak belső hálózat)
 - `mock-broker/`: tesztekhez és offline futáshoz
-- `dashboard/`: feladatok, üzenetek, portfólió, döntések eredményessége
+- `dashboard/` (7., kész): `http://localhost:8080` (csak localhost). FastAPI JSON API (`/api/portfolio`, `/api/flows`, `/api/flows/{trace_id}`, `/api/decisions`, `/api/tasks`, `/api/outcomes`) + egy statikus oldal (vanilla JS, CDN nélkül). Postgres a közös role-lal, de `default_transaction_read_only=on` sessionben (írás hibát dob); a portfólió élőben az IBKR MCP olvasó tooljaiból, tükör-tábla nincs. Nincs Claude-token, nincs ibkrfacade-hozzáférés

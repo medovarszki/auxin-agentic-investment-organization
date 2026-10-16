@@ -17,6 +17,7 @@ import uuid
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from auxin_a2a import tracing
 from auxin_a2a.client import new_trace_id, send, task_summary
 from auxin_schemas.knowledge import DecisionKind, DecisionRecord
 from auxin_schemas.metadata import MessageType
@@ -102,6 +103,7 @@ def main() -> int:
     run.add_argument("job", choices=sorted(JOBS))
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
+    tracing.setup("scheduler")
     if args.command == "serve":
         asyncio.run(_serve())
         return 0

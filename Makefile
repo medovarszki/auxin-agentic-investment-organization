@@ -5,7 +5,7 @@ IBKR = cd $(IBKRFACADE_DIR) && docker compose
 PSQL = $(COMPOSE) exec -T postgres sh -c 'psql -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -P pager=off -c "$$0"'
 
 .PHONY: test validate base build up ibkr-up ibkr-down ibkr-check mcp-check kb-check scan review run-job tasks decisions db-revision execute-pending logs \
-	scan-local egress-test down
+	ui scan-local egress-test down
 
 test:            ## unit tests
 	uv run pytest -q
@@ -19,7 +19,7 @@ base:            ## shared agent base image
 build: base      ## agent, MCP server and service images
 	$(COMPOSE) build
 
-up: ibkr-up      ## broker stack, egress proxy, Postgres, knowledge service and the agent A2A servers
+up: ibkr-up      ## broker stack, egress proxy, Postgres, knowledge service, agent A2A servers, Jaeger, dashboard
 	$(COMPOSE) up -d
 
 ibkr-up:         ## the ibkrfacade stack (gateway, Redis, facade), built from its checkout
@@ -66,8 +66,11 @@ db-revision: build up
 	  -v $(CURDIR)/services/knowledge/src/auxin_knowledge/migrations:/migrations \
 	  --entrypoint alembic knowledge -c /migrations/alembic.ini revision --autogenerate -m "$(m)"
 
-logs:            ## agent, Execution, MCP, knowledge and scheduler logs (JSON events)
-	$(COMPOSE) logs -f market-sentiment research portfolio-manager execution mcp-ibkr knowledge scheduler
+logs:            ## agent, Execution, MCP, knowledge, scheduler and dashboard logs (JSON events)
+	$(COMPOSE) logs -f market-sentiment research portfolio-manager execution mcp-ibkr knowledge scheduler dashboard
+
+ui: up           ## dashboard and Jaeger, localhost only
+	@echo "dashboard: http://localhost:8080   Jaeger: http://localhost:16686"
 
 scan-local: up   ## phase 4 one-shot run without A2A
 	$(COMPOSE) run --rm market-sentiment run --trigger scan

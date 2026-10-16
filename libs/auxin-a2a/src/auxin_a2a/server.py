@@ -19,9 +19,11 @@ from a2a.server.routes import create_agent_card_routes, create_jsonrpc_routes
 from a2a.server.tasks import TaskUpdater
 from a2a.types import AgentCapabilities, AgentCard, AgentExtension, AgentInterface, AgentSkill
 from google.protobuf.json_format import MessageToDict
+from opentelemetry.trace import SpanKind, Status, StatusCode
 from pydantic import ValidationError
 from starlette.applications import Starlette
 
+from auxin_a2a import tracing
 from auxin_a2a.store import open_task_store
 from auxin_schemas.metadata import EXTENSION_URI, MessageMetadata
 from auxin_schemas.task import task_timeout
@@ -86,8 +88,9 @@ class AuxinExecutor(AgentExecutor):
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         message = context.message
         meta, error = None, None
+        raw_metadata = MessageToDict(message.metadata)
         try:
-            meta = MessageMetadata.from_a2a_metadata(MessageToDict(message.metadata))
+            meta = MessageMetadata.from_a2a_metadata(raw_metadata)
         except (ValueError, ValidationError) as exc:
             error = f"invalid Auxin metadata: {exc}"
 
@@ -118,29 +121,42 @@ class AuxinExecutor(AgentExecutor):
             "correlation_id": meta.correlation_id,
             "trace_id": meta.trace_id,
         }
+        attributes = {"auxin.agent": self.agent, "auxin.sender": meta.sender, "auxin.message.type": meta.type.value,
+                      "auxin.subject": meta.subject, "auxin.correlation_id": meta.correlation_id, "a2a.task_id": task.id}
+        with tracing.span(f"a2a task {meta.type.value}", trace_id=meta.trace_id,
+                          parent=raw_metadata.get(tracing.TRACEPARENT), kind=SpanKind.SERVER,
+                          attributes=attributes) as span:
+            state = await self._run(meta, message, task.id, updater, log_fields)
+            span.set_attribute("auxin.task.state", state)
+            if state == "FAILED":
+                span.set_status(Status(StatusCode.ERROR))
+
+    async def _run(self, meta: MessageMetadata, message, task_id: str, updater: TaskUpdater, log_fields: dict) -> str:
+        """Runs the handler; returns the final state (COMPLETED, REJECTED, FAILED)."""
         _event("task_working", **log_fields)
         await updater.start_work()
         payloads = get_data_parts(message.parts)
-        incoming = Incoming(meta=meta, payload=payloads[0] if payloads else {}, task_id=task.id)
+        incoming = Incoming(meta=meta, payload=payloads[0] if payloads else {}, task_id=task_id)
         timeout = task_timeout(meta.type)
         try:
             result = await asyncio.wait_for(self.handler(incoming), timeout.total_seconds())
         except Rejected as exc:
             _event("task_rejected", **log_fields, error=str(exc))
             await updater.reject(new_text_message(str(exc)))
-            return
+            return "REJECTED"
         except TimeoutError:
             _event("task_failed", **log_fields, error=f"timeout after {timeout}")
             await updater.failed(new_text_message(f"timeout after {timeout}"))
-            return
+            return "FAILED"
         except Exception as exc:  # noqa: BLE001 - any handler error ends the task FAILED, no retry
             log.exception("handler failed")
             _event("task_failed", **log_fields, error=str(exc))
             await updater.failed(new_text_message(f"{type(exc).__name__}: {exc}"))
-            return
+            return "FAILED"
         await updater.add_artifact([new_data_part(result, media_type="application/json")], name="result")
         await updater.complete()
         _event("task_completed", **log_fields)
+        return "COMPLETED"
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         raise NotImplementedError("cancel is not supported")
@@ -162,5 +178,6 @@ async def _serve(agent: str, description: str, accepts: list[str], handler: Hand
 
 
 def serve(agent: str, description: str, accepts: list[str], handler: Handler, url: str | None = None) -> None:
+    tracing.setup(agent)
     url = url or os.environ.get("AUXIN_A2A_PUBLIC_URL", f"http://{agent}:{PORT}/")
     asyncio.run(_serve(agent, description, accepts, handler, url))

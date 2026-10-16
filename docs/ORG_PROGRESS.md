@@ -15,7 +15,8 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 4. Agent-container sablon | kész: base image, `libs/auxin-runtime`, Market & Sentiment, egress proxy, compose; élő teszt Mihály gépén (2026-10-14): 40 teszt, egress OK, első scan `COMPLETED` (0,80 USD, 8 turn, 2 ötlet) |
 | 5. Kommunikációs réteg | kész: `libs/auxin-a2a`, A2A szerverek, Postgres task store, `make scan` / `make tasks`; élő teszt OK (2026-10-15) |
 | 6. Döntési hurkok | 6.1 kész (IBKR MCP, élő teszt OK); 6.2 kész (`services/knowledge`, élő teszt OK); 6.3 kész (élő teszt OK: első paper fill); 6.4 kész (élő teszt: HOLD, a SELL-ág élesben még nem futott); 6.5 kész (scheduler élesben fut; a tanulság-ág az első zárásnál fut először) |
-| 7–9. | nincs elkezdve |
+| 7. Dashboard és trace | kód kész, image-ek felépültek; élő teszt hátra (`make up`, Jaeger image pull, egy `make review`) |
+| 8–9. | nincs elkezdve |
 
 ## Döntési napló
 
@@ -138,6 +139,10 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-16 | Verzió: APScheduler **3.11.3** (`uv` feloldás és webkeresés, piwheels: 3.11.3, 2026-06-28; a 4.0 csak alpha), függőségei tzlocal 5.4.4, tzdata 2026.5 | 3.x stabil API (`AsyncIOScheduler`, `CronTrigger`) |
 | 2026-10-16 | **6.5 (kód)**: `services/scheduler` (`auxin-scheduler`, workspace-tag, a közös base image-ben): `CronTrigger(day_of_week=mon-fri, Europe/Budapest)`, 09:00 `scan` → Market & Sentiment, 15:30 `review` → PM, 21:00 `evaluate`; `max_instances=1`, `coalesce`, `misfire_grace_time` 5 perc; minden futás saját trace, `sender=scheduler`. `evaluate`: a napló fill-jeiből (`ibkr.action` BUY / SELL, időrendben) a lezárt ciklusok → `DecisionOutcome` (benchmark nélkül: költség, bevétel, jutalék, P&L, hozam, nyitás / zárás, napok; `decision_id` = a záró SELL döntése) → `decision_outcome` bejegyzés (id = `uuid5(decision_id, "decision_outcome")`, a már kiértékelt kimarad) → `decision_outcome` üzenet a Researchnek → `lesson` skill → `LessonDraft` → a runtime a `lessons` táblába írja (`POST /lessons`, id = `uuid5(decision_id, "lesson")`). Container: hardening, csak `agents` hálózat, nincs Claude-token. `make run-job job=scan\|review\|evaluate` | Terv 6.5 |
 | 2026-10-16 | **6.5 élő teszt**: a scheduler fut, a következő futások: `evaluate` 2026-10-16 21:00, `scan` 2026-10-19 09:00, `review` 2026-10-19 15:30 (CEST). Kézi jobok: `evaluate` → `closed_positions: []` (nincs lezárt pozíció); `review` → TSM HOLD (trace `a1797b12`, `bdcc5dab`); `scan` → GDX (`8eef668f`) és BNY (`dc947d83`), mindkettő `idea_reject` (nincs 15% upside), megbízás nem lett. A review és a scan véletlenül kétszer futott (egy hibás kimenet-feldolgozás után újraindítottam, holott az első futás sikeres volt). Az evaluator számítása offline ellenőrizve (100 db vétel, két részeladás: +137 USD, +13,7%, 19 nap; az újranyitott pozíció nyitva marad) | A tanulság-ág és a SELL-ág élesben még nem futott |
+| 2026-10-16 | 7. fázis döntések: dashboard és OTel-instrumentáció + Jaeger egy lépésben; portfólió élőben az IBKR MCP-ből (nincs tükör-tábla, a 3.a halasztás így lezárul); Postgres read-only a közös role-lal, `default_transaction_read_only=on` sessionben; UI: FastAPI JSON API + egy statikus oldal (vanilla JS, CDN nélkül); Jaeger memóriában | Mihály |
+| 2026-10-16 | Verziók (webkeresés + `uv` feloldás): `opentelemetry-sdk` / `opentelemetry-exporter-otlp-proto-http` 1.45.1, `opentelemetry-instrumentation-httpx` 0.66b1 (a semconv 0.66b1-hez illő contrib-sor); Jaeger `jaegertracing/jaeger:2.20.0` (v2; a v1 2025-12-31-én EOL) | Egyezik az ADR 0001 OTel-verziójával |
+| 2026-10-16 | **7. tracing (kód)**: `auxin_a2a.tracing`: OTLP/HTTP közvetlenül a Jaegerbe (`OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318`, collector nélkül; a változó nélkül no-op). A trace id = az Auxin `trace_id` (saját id-generátor a gyökér spanhoz), a szülő span W3C `traceparent`-ként a message metadatában utazik az extension mellett (a séma nem változott). Spanok: `a2a send <type> -> <címzett>` (CLIENT), `a2a task <type>` (SERVER, állapottal), `invoke_agent <agent>` (GenAI semconv: provider, modell, input / output / cache tokenek; plusz turnök, névleges költség), `execute_tool <tool>` (az Agent SDK üzenetfolyamából, tool_use → tool_result, argumentumok 1000 karakterig), minden httpx-hívás (`HTTPXClientInstrumentor`: tudásbázis, IBKR MCP, ibkrfacade). Service-név: az agent neve, `operator`, `scheduler` | Egy trace-en a teljes lánc; a WebSearch-hívások `execute_tool` spanként számolhatók |
+| 2026-10-16 | **7. dashboard (kód)**: `services/dashboard` (`localhost:8080`): portfólió (NAV, cash, pozíciók súllyal, P&L, utolsó review), folyamatok trace szerint (trigger, taszkok, hibák, instrumentumok, napló-események) és részletes idővonal (taszkok + döntések, JSON, Jaeger-link), döntési napló szűrővel, taszkok, lezárt pozíciók és tanulságok. Új `ui` hálózat (nem internal, mert belső hálózaton nem lehet portot publikálni): csak a Jaeger és a dashboard van rajta, mindkettő csak `127.0.0.1`-re publikál. `make ui`; `infra/otel` törölve | Terv 7. |
 
 ## Feltételezések (megerősítésre várnak)
 
@@ -147,7 +152,7 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 ## Nyitott kérdések
 
 - A szektorszabály felülvizsgálata (jelenleg ideiglenes).
-- A `usage.server_tool_use.web_search_requests` 0, holott volt keresés: a Claude Code a WebSearch-öt külön al-hívásban futtatja. A valódi keresés- és költségszámot a runtime-nak kell majd gyűjtenie (a `cost_usd` tartalmazza-e az al-hívást? ellenőrizendő).
+- A `usage.server_tool_use.web_search_requests` 0, holott volt keresés: a Claude Code a WebSearch-öt külön al-hívásban futtatja. A keresések száma a 7. fázistól az `execute_tool WebSearch` spanokból látszik; hogy a `cost_usd` tartalmazza-e az al-hívást, még ellenőrizendő.
 - Előfizetési keret: kell-e napi taszk-limit, hogy az agentek ne fogyasszák el a heti keretet (a napi teljes review pozíciónként fut)?
 - A2A auth (agentenkénti token, ki kitől mit fogadhat el) és TLS a belső forgalomra: később (Mihály).
 - Unit tesztek az `auxin-a2a`-hoz (metaadat-elutasítás, timeout): később (Mihály).
@@ -155,6 +160,6 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 
 ## Következő lépés
 
-A 6. fázis kész: a szervezet önállóan fut (09:00 scan, 15:30 review, 21:00 kiértékelés). Figyelendő az első REDUCE / CLOSE (SELL-ág) és az első zárás (tanulság-ág). Következő: 7. fázis (dashboard, trace), előtte döntés és kérdések.
+A 7. fázis kódja kész, az image-ek felépültek (`make build`). Hátra az élő teszt Mihály gépén: `make up` (lehúzza a `jaegertracing/jaeger:2.20.0` image-et), `make ui`, egy `make review` (vagy a 15:30-as futás), majd: a dashboard minden füle betölt, a folyamat idővonala és a Jaeger-trace ugyanazt a `trace_id`-t mutatja (operator → PM → Execution / Research, `invoke_agent`, `execute_tool` spanok). Utána 8. fázis.
 
 Előfeltétel Mihály gépén: Docker CE, `make`, `uv`, kitöltött `.env` (`CLAUDE_CODE_OAUTH_TOKEN`, `POSTGRES_PASSWORD`; `ANTHROPIC_API_KEY` nincs). Az ibkrfacade ugyanezen a gépen külön compose-projektben fut.

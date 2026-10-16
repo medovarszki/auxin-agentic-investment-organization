@@ -17,6 +17,7 @@ COPY libs ./libs
 COPY mcp-servers/ibkr ./mcp-servers/ibkr
 COPY services/knowledge ./services/knowledge
 COPY services/scheduler ./services/scheduler
+COPY services/dashboard ./services/dashboard
 RUN uv sync --frozen --no-dev --no-editable \
     && rm -rf /src /root/.cache
 

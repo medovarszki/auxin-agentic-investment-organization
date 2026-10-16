@@ -10,6 +10,8 @@ networks:
   # The ibkrfacade project's internal network (make ibkr-up creates it). Only the IBKR MCP server joins it.
   ibkr-backend:
     external: true
+  # Only for publishing the Jaeger and dashboard UIs to localhost: ports cannot be published on an internal network.
+  ui: {}
 
 volumes:
   pgdata: {}
@@ -21,15 +23,19 @@ x-db-env: &db-env
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
   POSTGRES_DB: ${POSTGRES_DB:?set in .env}
 
+# Traces (OTLP/HTTP) straight to Jaeger, no collector (phase 7); without the variable tracing is off.
+x-otel-env: &otel-env
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+
 # LLM agents: subscription token, Claude API through the proxy, MCP servers and the knowledge REST.
 x-llm-env: &llm-env
-  <<: *db-env
+  <<: [*db-env, *otel-env]
   # Subscription quota only (Mihály); ANTHROPIC_API_KEY is never passed to a container.
   CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:?set in .env (claude setup-token)}
   # Only the Claude API goes through the proxy; A2A, MCP and Postgres stay on the internal network.
   HTTPS_PROXY: http://egress-proxy:3128
   HTTP_PROXY: http://egress-proxy:3128
-  NO_PROXY: localhost,127.0.0.1,postgres,market-sentiment,research,portfolio-manager,execution,mcp-ibkr,knowledge
+  NO_PROXY: localhost,127.0.0.1,postgres,market-sentiment,research,portfolio-manager,execution,mcp-ibkr,knowledge,jaeger
   AUXIN_MCP_IBKR_URL: http://mcp-ibkr:8000/mcp
   AUXIN_MCP_KNOWLEDGE_BASE_URL: http://knowledge:8000/mcp
   AUXIN_KNOWLEDGE_URL: http://knowledge:8000
@@ -116,7 +122,7 @@ services:
       dockerfile: agents/execution/Dockerfile
     image: auxin-execution
     environment:
-      <<: *db-env
+      <<: [*db-env, *otel-env]
       IBKRFACADE_URL: http://ibkrfacade:8082/ibkr
       AUXIN_KNOWLEDGE_URL: http://knowledge:8000
     networks: [agents, ibkr-backend]
@@ -160,6 +166,7 @@ services:
       dockerfile: services/scheduler/Dockerfile
     image: auxin-scheduler
     environment:
+      <<: *otel-env
       AUXIN_KNOWLEDGE_URL: http://knowledge:8000
     depends_on:
       knowledge: {condition: service_healthy}
@@ -170,9 +177,47 @@ services:
     cpus: 0.5
     mem_limit: 256m
 
+  # Trace backend: Jaeger v2 all-in-one, in-memory storage (lost on restart; the audit is the Postgres task store
+  # and decision log). OTLP/HTTP on 4318 inside the agents network, UI on localhost:16686 only.
+  jaeger:
+    image: jaegertracing/jaeger:2.20.0
+    environment:
+      JAEGER_LISTEN_HOST: 0.0.0.0
+    networks: [agents, ui]
+    ports: ["127.0.0.1:16686:16686"]
+    read_only: true
+    tmpfs: [/tmp:size=64m]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    cpus: 0.5
+    mem_limit: 512m
+
+  # Dashboard: read-only JSON API + one static page on localhost:8080. Postgres in read-only sessions, the
+  # portfolio live through mcp-ibkr; no Claude token, no ibkrfacade access.
+  dashboard:
+    <<: *agent-hardening
+    build:
+      context: ../..
+      dockerfile: services/dashboard/Dockerfile
+    image: auxin-dashboard
+    environment:
+      <<: *db-env
+      AUXIN_MCP_IBKR_URL: http://mcp-ibkr:8000/mcp
+      AUXIN_JAEGER_UI_URL: http://localhost:16686
+    networks: [agents, ui]
+    ports: ["127.0.0.1:8080:8000"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      mcp-ibkr: {condition: service_started}
+    cpus: 0.5
+    mem_limit: 256m
+
   # One-shot sender for manual triggers: make scan. Not a long-running service.
   operator:
     <<: *agent-hardening
     image: auxin-agent-base
+    environment:
+      <<: *otel-env
     restart: "no"
     profiles: [tools]

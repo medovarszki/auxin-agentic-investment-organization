@@ -17,7 +17,7 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 | Risk | tervezett | független kockázatkezelés, limitfelügyelet |
 | Compliance | tervezett | szabálymegfelelés, audit |
 | Operations | tervezett | elszámolás, egyeztetés a brokerrel |
-| Reporting | tervezett | teljesítményjelentések, dashboard |
+| Reporting | részben (7.: dashboard, trace) | teljesítményjelentések; a dashboard és a Jaeger támogató szolgáltatás, nem szerep |
 
 ### Szervezeti ábra
 
@@ -48,7 +48,8 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 | ibkrfacade (külön repó) | működik | REST az IB Gateway fölött; paper/live védelem, idempotens order |
 | `services/scheduler` | működik (6.5) | munkanapokon (hétfő–péntek, Europe/Budapest) 09:00 scan, 15:30 review, 21:00 kiértékelés; kézzel: `make run-job job=...` |
 | döntés-kiértékelő (a scheduler `evaluate` jobja) | működik (6.5) | a lezárt pozíciók realizált hozama a fill-ekből (benchmark nélkül) → `decision_outcome` a naplóba és a Researchnek |
-| dashboard, trace (Jaeger) | tervezett (7.) | feladatok, döntések, portfólió áttekintése |
+| `services/dashboard` | működik (7.) | `localhost:8080`, csak olvas: portfólió élőben (IBKR MCP) az utolsó review-val, folyamatok trace szerint (taszkok + napló-események egy idővonalon, Jaeger-link), döntési napló, taszkok, lezárt pozíciók és tanulságok. Postgres read-only sessionben |
+| Jaeger (trace) | működik (7.) | `localhost:16686`, memóriában (restartkor elvész; az audit a Postgres). Spanok: A2A send / task, `invoke_agent` (modell, tokenek, turnök), `execute_tool` (az agentek tool-hívásai, pl. WebSearch, MCP), HTTP-hívások (tudásbázis, IBKR MCP, ibkrfacade). A trace id = a folyamat Auxin `trace_id`-ja |
 
 ### Folyamatok
 
@@ -102,8 +103,8 @@ Lezárt egy pozíció, ha az eladások kiadják a vett mennyiséget; hozam = (be
 | `agents/` | 1 könyvtár = 1 szerep = 1 container: `agent.yaml`, `CLAUDE.md`, saját `skills/`, `Dockerfile` (az Execution determinisztikus, ugyanazzal a runtime-mal) |
 | `libs/` | Importált Python kód (sémák, A2A-réteg, agent runtime); önállóan nem fut |
 | `mcp-servers/` | Saját MCP szerverek (IBKR) |
-| `services/` | Futó, nem-agent containerek (tudásbázis, scheduler a döntés-kiértékelővel) |
-| `infra/` | Compose, egress allowlist |
+| `services/` | Futó, nem-agent containerek (tudásbázis, scheduler a döntés-kiértékelővel, dashboard) |
+| `infra/` | Compose (Jaeger is), egress allowlist |
 | `docs/` | Haladási napló, szervezeti terv, ADR-ek |
 
 ## Futtatás
@@ -111,7 +112,8 @@ Lezárt egy pozíció, ha az eladások kiadják a vett mennyiséget; hozam = (be
 Előfeltétel: Docker CE, `make`, `uv`, a repó mellett az [ibkrfacade](https://github.com/medovarszki/ibkrfacade) checkoutja a saját `.env`-jével, és a gyökérben kitöltött `.env` (lásd `.env.example`).
 
 ```
-make build && make up     # broker stack, Postgres, tudásbázis, agentek
+make build && make up     # broker stack, Postgres, tudásbázis, agentek, Jaeger, dashboard
+make ui                   # dashboard: http://localhost:8080, Jaeger: http://localhost:16686
 make scan                 # egy napi scan kézi indítása
 make tasks                # a közös task tábla
 make decisions            # a döntési napló

@@ -1,0 +1,27 @@
+[project]
+name = "auxin-dashboard"
+version = "0.1.0"
+description = "Auxin dashboard: read-only JSON API over the task store and the knowledge base, live portfolio through the IBKR MCP server, one static page"
+requires-python = ">=3.12"
+dependencies = [
+    "auxin-a2a",
+    "auxin-runtime",
+    "sqlalchemy[asyncio]==2.1.4",
+    "asyncpg==0.32.0",
+    "fastapi==0.143.2",
+    "uvicorn==0.54.0",
+]
+
+[project.scripts]
+auxin-dashboard = "auxin_dashboard.app:main"
+
+[tool.uv.sources]
+auxin-a2a = { workspace = true }
+auxin-runtime = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/auxin_dashboard"]

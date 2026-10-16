@@ -11,6 +11,7 @@ import sys
 import uuid
 from pathlib import Path
 
+from auxin_a2a import tracing
 from auxin_a2a.client import new_trace_id, send, task_summary
 from auxin_a2a.server import serve
 from auxin_schemas.domain import MarketScanResult
@@ -44,6 +45,7 @@ def _serve(agent_dir: Path) -> int:
 
 
 def _trigger(recipient: str, message_type: str, payload: dict) -> int:
+    tracing.setup("operator")
     flow_id = str(uuid.uuid4())
     task = asyncio.run(
         send(

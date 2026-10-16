@@ -9,7 +9,9 @@ from a2a.client import A2ACardResolver, ClientConfig, ClientFactory
 from a2a.helpers import new_data_part
 from a2a.types import GetTaskRequest, Message, Role, SendMessageRequest, Task, TaskState
 from google.protobuf.json_format import MessageToDict
+from opentelemetry.trace import SpanKind
 
+from auxin_a2a import tracing
 from auxin_a2a.server import PORT
 from auxin_schemas.metadata import EXTENSION_URI, MessageMetadata, MessageType
 from auxin_schemas.task import task_timeout
@@ -58,11 +60,23 @@ async def send(
         correlation_id=correlation_id,
         trace_id=trace_id,
     )
+    attributes = {"auxin.sender": sender, "auxin.recipient": recipient, "auxin.message.type": type.value,
+                  "auxin.subject": subject, "auxin.correlation_id": correlation_id}
+    with tracing.span(f"a2a send {type.value} -> {recipient}", trace_id=trace_id, kind=SpanKind.CLIENT,
+                      attributes=attributes) as span:
+        task = await _send(meta, payload, reference_task_ids)
+        span.set_attributes({"a2a.task_id": task.id, "auxin.task.state": TaskState.Name(task.status.state)})
+    return task
+
+
+async def _send(meta: MessageMetadata, payload: dict, reference_task_ids: list[str] | None) -> Task:
+    sender, recipient, type = meta.sender, meta.recipient, meta.type  # noqa: A001
     message = Message(
         message_id=str(meta.message_id),
         role=Role.ROLE_USER,
         parts=[new_data_part(payload, media_type="application/json")],
-        metadata=meta.to_a2a_metadata(),
+        # The W3C traceparent next to the extension: the recipient's task span is this send span's child.
+        metadata=meta.to_a2a_metadata() | tracing.traceparent(),
         extensions=[EXTENSION_URI],
         reference_task_ids=reference_task_ids or [],
     )

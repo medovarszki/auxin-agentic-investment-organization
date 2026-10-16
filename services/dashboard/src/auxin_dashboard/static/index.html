@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auxin dashboard</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1f21; --muted: #6b7075; --line: #e3e3df;
+    --accent: #2f6f4f; --bad: #b3261e; --warn: #9a6700; --good: #2f6f4f;
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151718; --panel: #1d2022; --text: #e6e6e3; --muted: #9aa0a6; --line: #2e3235;
+            --accent: #7cc49b; --bad: #f28b82; --warn: #e3b341; --good: #7cc49b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); }
+  header { display: flex; gap: 16px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line);
+           background: var(--panel); flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; }
+  nav { display: flex; gap: 4px; flex-wrap: wrap; }
+  nav button { border: 1px solid transparent; background: none; color: var(--muted); padding: 6px 10px;
+               border-radius: 6px; cursor: pointer; font: inherit; }
+  nav button.on { color: var(--text); border-color: var(--line); background: var(--bg); }
+  #refresh { margin-left: auto; }
+  button.small { font: inherit; padding: 4px 10px; border: 1px solid var(--line); background: var(--panel);
+                 color: var(--text); border-radius: 6px; cursor: pointer; }
+  main { padding: 16px; max-width: 1400px; margin: 0 auto; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .card .k { color: var(--muted); font-size: 12px; }
+  .card .v { font-size: 20px; font-variant-numeric: tabular-nums; }
+  .wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.click { cursor: pointer; } tr.click:hover td { background: var(--bg); }
+  .muted { color: var(--muted); } .bad { color: var(--bad); } .good { color: var(--good); } .warn { color: var(--warn); }
+  .tag { display: inline-block; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); font-size: 12px;
+         margin: 0 2px 2px 0; white-space: nowrap; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+  .err { background: var(--panel); border: 1px solid var(--bad); color: var(--bad); padding: 10px; border-radius: 8px;
+         margin-bottom: 12px; }
+  details pre { white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow: auto; background: var(--bg);
+                padding: 8px; border-radius: 6px; }
+  h2 { font-size: 15px; margin: 20px 0 8px; }
+  .filters { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .filters input, .filters select { font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px;
+                                    background: var(--panel); color: var(--text); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Auxin</h1>
+  <nav id="tabs">
+    <button data-tab="portfolio">Portfólió</button>
+    <button data-tab="flows">Folyamatok</button>
+    <button data-tab="decisions">Döntési napló</button>
+    <button data-tab="tasks">Taszkok</button>
+    <button data-tab="outcomes">Eredmények</button>
+  </nav>
+  <button id="refresh" class="small">Frissítés</button>
+</header>
+<main id="view"></main>
+<script>
+const $view = document.getElementById("view");
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+const num = (v, d = 2) => v == null || v === "" ? "" : Number(v).toLocaleString("hu-HU", {minimumFractionDigits: d, maximumFractionDigits: d});
+const time = v => v ? new Date(v).toLocaleString("hu-HU", {dateStyle: "short", timeStyle: "medium"}) : "";
+const short = v => v ? esc(String(v).slice(0, 8)) : "";
+const stateCls = s => /FAILED/.test(s) ? "bad" : /REJECTED/.test(s) ? "warn" : /COMPLETED/.test(s) ? "good" : "muted";
+const kindCls = k => /reject/.test(k) ? "warn" : /fill|order_submitted/.test(k) ? "good" : "";
+const signCls = v => v > 0 ? "good" : v < 0 ? "bad" : "";
+
+async function api(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+  return r.json();
+}
+
+function table(cols, rows, onclick) {
+  if (!rows.length) return `<p class="muted">Nincs adat.</p>`;
+  const head = cols.map(c => `<th${c.num ? ' style="text-align:right"' : ""}>${esc(c.h)}</th>`).join("");
+  const body = rows.map((r, i) => `<tr${onclick ? ` class="click" data-i="${i}"` : ""}>` +
+    cols.map(c => `<td${c.num ? ' class="num"' : ""}>${c.f(r)}</td>`).join("") + "</tr>").join("");
+  return `<div class="wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+function bindRows(rows, onclick) {
+  $view.querySelectorAll("tr.click").forEach(tr => tr.addEventListener("click", () => onclick(rows[tr.dataset.i])));
+}
+
+const views = {
+  async portfolio() {
+    const p = await api("/api/portfolio");
+    const a = p.account || {};
+    const cur = esc(a.currency || "");
+    let html = p.error ? `<div class="err">Broker nem elérhető: ${esc(p.error)}</div>` : "";
+    html += `<div class="cards">
+      ${[["NAV", a.net_liquidation], ["Cash", a.total_cash_value], ["Szabad keret", a.available_funds],
+         ["Pozíciók", p.positions.length, 0]].map(([k, v, d]) =>
+        `<div class="card"><div class="k">${k}</div><div class="v">${num(v, d ?? 0)} ${d === 0 ? "" : cur}</div></div>`).join("")}
+    </div>`;
+    html += table([
+      {h: "Symbol", f: r => `<b>${esc(r.symbol)}</b> <span class="muted mono">${esc(r.conid)}</span>`},
+      {h: "Mennyiség", num: 1, f: r => num(r.quantity, 0)},
+      {h: "Átlagár", num: 1, f: r => num(r.avg_cost)},
+      {h: "Piaci ár", num: 1, f: r => num(r.market_price)},
+      {h: "Érték", num: 1, f: r => num(r.market_value, 0)},
+      {h: "Súly %", num: 1, f: r => num(r.weight_pct)},
+      {h: "Nem realizált P&L", num: 1, f: r => `<span class="${signCls(r.unrealized_pnl)}">${num(r.unrealized_pnl, 0)}</span>`},
+      {h: "Utolsó review", f: r => r.last_review
+        ? `<span class="tag">${esc(r.last_review.recommendation)}</span> <span class="muted">${time(r.last_review.created_at)}</span>`
+        : `<span class="muted">–</span>`},
+    ], p.positions);
+    if (a.account) html += `<p class="muted">Számla: ${esc(a.account)}</p>`;
+    $view.innerHTML = html;
+  },
+
+  async flows() {
+    const rows = await api("/api/flows");
+    $view.innerHTML = table([
+      {h: "Indult", f: r => time(r.started_at)},
+      {h: "Trigger", f: r => `${esc(r.trigger || "?")} <span class="muted">${esc(r.sender || "")}</span>`},
+      {h: "Taszk", num: 1, f: r => r.tasks},
+      {h: "Állapot", f: r => r.failed ? `<span class="bad">${r.failed} FAILED</span>`
+        : r.running ? `<span class="muted">${r.running} fut</span>` : `<span class="good">kész</span>`},
+      {h: "Instrumentumok", f: r => (r.symbols || []).map(s => `<span class="tag">${esc(s)}</span>`).join("")},
+      {h: "Napló-események", f: r => (r.kinds || []).map(k => `<span class="tag ${kindCls(k)}">${esc(k)}</span>`).join("")},
+      {h: "Trace", f: r => `<span class="mono">${short(r.trace_id)}</span>`},
+    ], rows, true);
+    bindRows(rows, r => go(`flow/${r.trace_id}`));
+  },
+
+  async flow(traceId) {
+    const f = await api(`/api/flows/${encodeURIComponent(traceId)}`);
+    const events = [
+      ...f.tasks.map(t => ({at: t.last_updated, type: "task", t})),
+      ...f.decisions.map(d => ({at: d.created_at, type: "decision", d})),
+    ].sort((x, y) => new Date(x.at) - new Date(y.at));
+    let html = `<p><a href="#flows">← Folyamatok</a> · trace <span class="mono">${esc(f.trace_id)}</span> ·
+      <a href="${esc(f.jaeger_url)}" target="_blank" rel="noopener">Jaeger</a></p>`;
+    html += table([
+      {h: "Idő", f: e => time(e.at)},
+      {h: "", f: e => e.type === "task" ? `<span class="tag">taszk</span>` : `<span class="tag ${kindCls(e.d.kind)}">${esc(e.d.kind)}</span>`},
+      {h: "Ki", f: e => e.type === "task" ? `${esc(e.t.sender)} → <b>${esc(e.t.agent)}</b>` : esc(e.d.agent)},
+      {h: "Mi", f: e => e.type === "task"
+        ? `${esc(e.t.type)}: ${esc(e.t.subject)} <span class="${stateCls(e.t.state)}">${esc(e.t.state)}</span>` +
+          (e.t.status_message ? `<div class="muted">${esc(e.t.status_message)}</div>` : "")
+        : `${e.d.symbol ? `<b>${esc(e.d.symbol)}</b> ` : ""}${esc(e.d.summary)}`},
+      {h: "Részletek", f: e => `<details><summary class="muted">JSON</summary><pre>${esc(JSON.stringify(
+        e.type === "task" ? e.t.artifacts : {payload: e.d.payload, snapshot: e.d.snapshot}, null, 2))}</pre></details>`},
+    ], events);
+    $view.innerHTML = html;
+  },
+
+  async decisions() {
+    const params = new URLSearchParams(location.hash.split("?")[1] || "");
+    const kind = params.get("kind") || "", symbol = params.get("symbol") || "";
+    const q = new URLSearchParams({...(kind && {kind}), ...(symbol && {symbol})});
+    const rows = await api(`/api/decisions?${q}`);
+    const kinds = ["idea", "idea_reject", "proposal", "proposal_reject", "order", "order_submitted", "fill",
+                   "order_reject", "review", "decision_outcome"];
+    $view.innerHTML = `<div class="filters">
+        <select id="f-kind"><option value="">minden esemény</option>${kinds.map(k =>
+          `<option${k === kind ? " selected" : ""}>${k}</option>`).join("")}</select>
+        <input id="f-symbol" placeholder="symbol" value="${esc(symbol)}" size="8">
+      </div>` + table([
+      {h: "Idő", f: r => time(r.created_at)},
+      {h: "Esemény", f: r => `<span class="tag ${kindCls(r.kind)}">${esc(r.kind)}</span>`},
+      {h: "Agent", f: r => esc(r.agent)},
+      {h: "Symbol", f: r => `<b>${esc(r.symbol)}</b>`},
+      {h: "Összefoglaló", f: r => esc(r.summary)},
+      {h: "Trace", f: r => r.trace_id ? `<a class="mono" href="#flow/${esc(r.trace_id)}">${short(r.trace_id)}</a>` : ""},
+    ], rows);
+    const apply = () => {
+      const p = new URLSearchParams();
+      const k = document.getElementById("f-kind").value, s = document.getElementById("f-symbol").value.trim();
+      if (k) p.set("kind", k);
+      if (s) p.set("symbol", s);
+      go(`decisions${p.toString() ? "?" + p : ""}`);
+    };
+    document.getElementById("f-kind").addEventListener("change", apply);
+    document.getElementById("f-symbol").addEventListener("change", apply);
+  },
+
+  async tasks() {
+    const rows = await api("/api/tasks");
+    $view.innerHTML = table([
+      {h: "Frissült", f: r => time(r.last_updated)},
+      {h: "Agent", f: r => `<b>${esc(r.agent)}</b>`},
+      {h: "Küldő", f: r => esc(r.sender)},
+      {h: "Típus", f: r => esc(r.type)},
+      {h: "Tárgy", f: r => esc(r.subject)},
+      {h: "Állapot", f: r => `<span class="${stateCls(r.state)}">${esc(r.state)}</span>`},
+      {h: "Trace", f: r => r.trace_id ? `<a class="mono" href="#flow/${esc(r.trace_id)}">${short(r.trace_id)}</a>` : ""},
+    ], rows);
+  },
+
+  async outcomes() {
+    const o = await api("/api/outcomes");
+    $view.innerHTML = `<h2>Lezárt pozíciók</h2>` + table([
+      {h: "Kiértékelve", f: r => time(r.created_at)},
+      {h: "Symbol", f: r => `<b>${esc(r.symbol)}</b>`},
+      {h: "Hozam %", num: 1, f: r => `<span class="${signCls(r.payload.return_pct)}">${num(r.payload.return_pct)}</span>`},
+      {h: "P&L", num: 1, f: r => `<span class="${signCls(r.payload.realized_pnl)}">${num(r.payload.realized_pnl, 0)}</span>`},
+      {h: "Napok", num: 1, f: r => esc(r.payload.holding_days)},
+      {h: "Trace", f: r => r.trace_id ? `<a class="mono" href="#flow/${esc(r.trace_id)}">${short(r.trace_id)}</a>` : ""},
+    ], o.closed) + `<h2>Tanulságok</h2>` + table([
+      {h: "Idő", f: r => time(r.created_at)},
+      {h: "Symbol", f: r => `<b>${esc(r.symbol)}</b>`},
+      {h: "Hozam %", num: 1, f: r => `<span class="${signCls(r.return_pct)}">${num(r.return_pct)}</span>`},
+      {h: "Tanulság", f: r => esc(r.lesson)},
+    ], o.lessons);
+  },
+};
+
+function go(hash) { location.hash = hash; }
+
+async function render() {
+  const [route, ...rest] = location.hash.slice(1).split("?")[0].split("/");
+  const name = views[route] ? route : "portfolio";
+  document.querySelectorAll("#tabs button").forEach(b =>
+    b.classList.toggle("on", b.dataset.tab === (name === "flow" ? "flows" : name)));
+  $view.innerHTML = `<p class="muted">Betöltés…</p>`;
+  try { await views[name](...rest); }
+  catch (e) { $view.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
+}
+
+document.querySelectorAll("#tabs button").forEach(b => b.addEventListener("click", () => go(b.dataset.tab)));
+document.getElementById("refresh").addEventListener("click", render);
+window.addEventListener("hashchange", render);
+render();
+</script>
+</body>
+</html>
