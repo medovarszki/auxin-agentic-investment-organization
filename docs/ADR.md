@@ -1,4 +1,4 @@
-# ORG_PROGRESS
+# ADR – döntési napló
 
 Folytathatósági napló: döntések rövid indoklással, kész fázisok, nyitott kérdések, következő lépés. Minden fázis végén frissül.
 
