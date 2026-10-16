@@ -13,7 +13,7 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 
 | Egység | Állapot | Pozíciók |
 |---|---|---|
-| **Core** (befektetési egység) | működik / épül | Market & Sentiment, Research, Portfolio Manager, Execution |
+| **Core** (befektetési egység) | működik (vétel); a review és eladás épül | Market & Sentiment, Research, Portfolio Manager, Execution |
 | Risk | tervezett | független kockázatkezelés, limitfelügyelet |
 | Compliance | tervezett | szabálymegfelelés, audit |
 | Operations | tervezett | elszámolás, egyeztetés a brokerrel |
@@ -35,9 +35,9 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 | Pozíció | Típus | Állapot | Felelősség | Fogad | Küld |
 |---|---|---|---|---|---|
 | **Market & Sentiment** | LLM-agent | működik | napi piaci összkép, sentiment, narratíva; legfeljebb 3 ötlet IBKR conidra oldva; kihagyja, ami a portfólióban van vagy 30 napon belül elutasított | `scan_trigger` | `idea` |
-| **Research** | LLM-agent | kész (6.3), élő teszt hátravan | ötlet-kritika és research (web, IBKR, tudásbázis); javaslat célárral, horizonttal, ≥3 kockázattal, ≥3 datált forrással, conviction 1–5; napi pozíció-újraértékelés; tanulság a lezárt pozíciókból | `idea`, `review_request`, `decision_outcome` | `proposal`, `idea_reject`, `review_result`, `lesson` |
-| **Portfolio Manager** | LLM-agent + determinisztikus szabálykapu | kész (6.3), élő teszt hátravan | dönt a javaslatról (indoklással); a runtime ellenőrzi a szabályokat és méretez (az IBKR MCP-n át olvas; zárt piacnál az utolsó záróárral); napi review (6.4) | `proposal`, `review_result` | `order`, `proposal_reject`, `review_request` |
-| **Execution** | determinisztikus service | kész (6.3), élő teszt hátravan | ellenőrzés (paper számla, egyezés a PM döntésével a naplóban, friss ár), megbízás csak kereskedési időben (zárt piacnál függő, `make execute-pending` / 15:30), market / DAY, idempotens (`client_order_id = decision_id`); az egyetlen IBKR írási joggal | `order`, `execute_pending` | `fill`, `order_reject` |
+| **Research** | LLM-agent | működik (6.3) | ötlet-kritika és research (web, IBKR, tudásbázis); javaslat célárral, horizonttal, ≥3 kockázattal, ≥3 datált forrással, conviction 1–5; napi pozíció-újraértékelés; tanulság a lezárt pozíciókból | `idea`, `review_request`, `decision_outcome` | `proposal`, `idea_reject`, `review_result`, `lesson` |
+| **Portfolio Manager** | LLM-agent + determinisztikus szabálykapu | működik (6.3) | dönt a javaslatról (indoklással); a runtime ellenőrzi a szabályokat és méretez (az IBKR MCP-n át olvas; zárt piacnál az utolsó záróárral); napi review (6.4) | `proposal`, `review_result` | `order`, `proposal_reject`, `review_request` |
+| **Execution** | determinisztikus service | működik (6.3) | ellenőrzés (paper számla, egyezés a PM döntésével a naplóban, friss ár), megbízás csak kereskedési időben (zárt piacnál függő, `make execute-pending` / 15:30), market / DAY, idempotens (`client_order_id = decision_id`); az egyetlen IBKR írási joggal | `order`, `execute_pending` | `fill`, `order_reject` |
 
 ### Támogató szolgáltatások (nem szerepek)
 
@@ -71,7 +71,7 @@ scheduler ─scan_trigger─► Market & Sentiment ─idea─► Research ─pro
 - Méret conviction szerint: 1–5 → 2 / 4 / 6 / 8 / 10% NAV; új pozíció ≤ 10% NAV.
 - Szektor ≤ 25% NAV (IBKR `industry`, csak részvények; az ETF-ekre szektorlimit nincs).
 - Csak szabad cash, nincs tőkeáttétel; market order, DAY; csak paper (`DU…`) számla.
-- MVP-korlátok: csak a számla bázisdevizájában jegyzett instrumentum (nincs FX-átváltás), meglévő pozíció nem növelhető, nincs visszadobási kör (az elutasítás végleges).
+- MVP-korlátok: csak a számla bázisdevizájában (USD) jegyzett instrumentum, nem-US cégnél ADR (nincs FX-átváltás), meglévő pozíció nem növelhető, nincs visszadobási kör (az elutasítás végleges).
 - Megbízás előtt nincs emberi jóváhagyás (tech demo, paper számla); élő számlánál újra kötelező.
 
 ### Ellenőrzési pontok

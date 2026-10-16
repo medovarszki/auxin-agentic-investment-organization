@@ -6,7 +6,7 @@ description: Challenge one investment idea with web, IBKR and knowledge-base res
 # Idea challenge
 
 ## 1. Pin down the instrument
-- `mcp__ibkr__get_contract` for the idea's conid: exchange, currency, industry, ISIN, stock vs ETF (`stock_type`). If the conid is missing or wrong, resolve it with `mcp__ibkr__search_contract`; if IBKR has no match, reject.
+- `mcp__ibkr__get_contract` for the idea's conid: exchange, currency, industry, ISIN, stock vs ETF (`stock_type`). If the conid is missing or wrong, resolve it with `mcp__ibkr__search_contract`; if IBKR has no match, reject. The fund only buys USD-quoted instruments for now (no FX): reject any other currency.
 - `mcp__ibkr__get_price`: today's price (`last`, or the bid/ask mid). If it is `stale`, say so; the PM gate will re-check the price anyway.
 - `mcp__ibkr__get_history` (6-12 months): trend, recent move, drawdowns. Reject chasing (a sharp run-up already pricing in the thesis).
 

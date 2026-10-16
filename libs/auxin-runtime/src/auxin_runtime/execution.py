@@ -1,7 +1,7 @@
 """Execution: deterministic, no LLM. The only Auxin component with access to ibkrfacade's order endpoint.
 
 verify (paper account, matches the PM decision in the decision log) -> market open? -> POST /order (MKT, DAY,
-client_order_id = decision_id) -> one status check -> fill. A closed market leaves the order pending in the log;
+client_order_id = decision_id) -> status checks for up to 30 s -> fill. A closed market leaves the order pending in the log;
 `execute_pending` (15:30 run, until then make execute-pending) places it and follows up submitted orders.
 """
 import asyncio
@@ -25,6 +25,7 @@ AGENT = "execution"
 FACADE_URL = os.environ.get("IBKRFACADE_URL", "http://ibkrfacade:8082/ibkr").rstrip("/")
 FINAL_KINDS = (DecisionKind.FILL.value, DecisionKind.ORDER_REJECT.value)
 STATUS_CHECK_DELAY_S = 5
+STATUS_CHECKS = 6
 
 
 def _facade() -> httpx.AsyncClient:
@@ -132,8 +133,12 @@ async def execute(order: Order, ctx: dict) -> dict:
                       f"(IBKR order {placed.get('order_id')}, {placed.get('status')})", placed, ctx)
         log.info(json.dumps({"event": "order_submitted", "decision_id": str(order.decision_id),
                              "ibkr_order_id": placed.get("order_id"), "status": placed.get("status")}))
-        await asyncio.sleep(STATUS_CHECK_DELAY_S)
-        return {"submitted": placed.get("order_id"), **await _follow_up(http, order, ctx)}
+        for _ in range(STATUS_CHECKS):  # a market order fills in seconds, sometimes in several executions
+            await asyncio.sleep(STATUS_CHECK_DELAY_S)
+            status = await _follow_up(http, order, ctx)
+            if status["status"] != "working":
+                break
+        return {"submitted": placed.get("order_id"), **status}
 
 
 async def execute_pending(ctx: dict) -> dict:

@@ -14,7 +14,7 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 3. Feladat- és üzenetmodell | kész: [`docs/TASK_MODEL.md`](TASK_MODEL.md), `libs/auxin-schemas` (29 teszt) |
 | 4. Agent-container sablon | kész: base image, `libs/auxin-runtime`, Market & Sentiment, egress proxy, compose; élő teszt Mihály gépén (2026-10-14): 40 teszt, egress OK, első scan `COMPLETED` (0,80 USD, 8 turn, 2 ötlet) |
 | 5. Kommunikációs réteg | kész: `libs/auxin-a2a`, A2A szerverek, Postgres task store, `make scan` / `make tasks`; élő teszt OK (2026-10-15) |
-| 6. Döntési hurkok | 6.1 kész (IBKR MCP, élő teszt OK); 6.2 kész (`services/knowledge`, élő teszt OK); 6.3 kód kész, élő teszt hátravan; 6.4–6.5 hátravan |
+| 6. Döntési hurkok | 6.1 kész (IBKR MCP, élő teszt OK); 6.2 kész (`services/knowledge`, élő teszt OK); 6.3 kész (élő teszt OK: első paper fill); 6.4–6.5 hátravan |
 | 7–9. | nincs elkezdve |
 
 ## Döntési napló
@@ -127,6 +127,10 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-16 | A Research verifier-szerepe és a `verify_request` / `verify_result` / `order_draft` üzenetek kikerültek az `agent.yaml`-okból (a verify determinisztikus, 2026-10-15) | Leíró = valóság |
 | 2026-10-16 | Élő teszt akadálya: az IBKR `10197 No market data during competing live session` / „Trading TWS session is connected from a different IP address”: amíg a live felhasználó máshol (TWS, Client Portal, mobil) be van lépve, a paper Gateway nem kap árat és historikus adatot | Mihálynak ki kell lépnie a másik sessionből |
 | 2026-10-16 | **Nincs portfólió-tükör** (`positions_mirror`, `account_mirror` kimarad): pozíció és számla élőben az ibkrfacade-ből; minden döntés mellé pillanatkép (NAV, cash, érintett pozíciók) a `decisions` sorban; tükör a 7. fázisban, a dashboarddal | Mihály (3.a): egyszerűség |
+| 2026-10-16 | A competing-session hiba (10197) magától megszűnt; helyette `10089 requires additional subscription for API` a NYSE Arca ETF-ekre (XLE, XLV, SPY). Az ibkrfacade `.env`: `IBKR_MARKET_DATA_TYPE=3` (Mihály lokális fájlja, nem a repó): ahol van élő előfizetés, élő adat jön (AAPL, MSFT `LIVE`), egyébként 15 perccel késleltetett (`DELAYED`, nem `stale`) | Mihály: a fő US részvényekre van élő előfizetés |
+| 2026-10-16 | Első élő scan (Mihály, trace `3acce09d`): XLV → `idea_reject` (nincs 15% upside); SU (Schneider Electric, EUR) → `proposal` → PM BUY → kapu `proposal_reject` (EUR ≠ USD). Javítás: a Market & Sentiment `idea-generation` és a Research `idea-challenge` skillje csak USD-s instrumentumot (US listing / ADR) enged (a kapu szabályának a promptban is meg kell jelennie) | Ne menjen kör nem kereskedhető ötletre |
+| 2026-10-16 | **6.3 élő teszt kész** (trace `443e36c5`, 15:41 CEST): TSM (TSMC ADR, conid 6223250) idea → proposal (conviction 3) → PM BUY → kapu: 144 db, ~59 993 USD (6% NAV) → Execution: paper számla OK, piac nyitva, `POST /order` MKT DAY → IBKR order 1 → **Filled 144 @ 416.62 USD**, jutalék ~1.00 USD (4 részletben, ~5 s alatt). Pozíció az IBKR-ben: 144 TSM | Az első paper megbízás Mihály 4.b döntése alapján |
+| 2026-10-16 | Javítások a teszt után: az Execution 5 s után egyszer nézett státuszt (még `working`) → most legfeljebb 6 × 5 s-ig; a fillt a `make execute-pending` rögzítette, de trace nélkül, mert a `GET /decisions` nem adta vissza a `trace_id` / `correlation_id` / `task_id` mezőt → a részletes lekérdezés most visszaadja. A fill sor trace-ét egyszeri SQL `UPDATE` pótolta az order sorból | A lánc egy trace-en látszik |
 
 ## Feltételezések (megerősítésre várnak)
 
@@ -144,6 +148,6 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 
 ## Következő lépés
 
-6.3 élő teszt: a live IBKR-session bezárása után `make scan` (US piacnyitás, 15:30 CEST után közvetlen leadás; előtte függő megbízás, majd `make execute-pending`), `make tasks`, `make decisions`; elvárt: a teljes lánc egy trace-en, a naplóban idea → proposal / idea_reject → order / proposal_reject → order_submitted → fill. Utána 6.4 napi review és eladás.
+6.4 napi review és eladás: minden nyitott pozícióra (most: 144 TSM) Research-újraértékelés → HOLD / REDUCE (cél-súllyal) / CLOSE → SELL `order` az Executionnek; kezdés döntéssel és kérdésekkel.
 
 Előfeltétel Mihály gépén: Docker CE, `make`, `uv`, kitöltött `.env` (`CLAUDE_CODE_OAUTH_TOKEN`, `POSTGRES_PASSWORD`; `ANTHROPIC_API_KEY` nincs). Az ibkrfacade ugyanezen a gépen külön compose-projektben fut.

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from auxin_knowledge.db import CompanyNoteRow, Decision, LessonRow
 from auxin_schemas.knowledge import REJECTION_KINDS, Written
 
-# Columns returned to readers; payload / snapshot only where the detail is asked for.
+# Columns returned to readers; payload / snapshot / trace context only where the detail is asked for.
 DECISION_COLUMNS = ("id", "created_at", "kind", "agent", "conid", "symbol", "summary", "idea_id", "decision_id")
 
 
@@ -56,7 +56,7 @@ async def decisions(
 ) -> list[dict]:
     columns = [getattr(Decision, c) for c in DECISION_COLUMNS]
     if with_payload:
-        columns += [Decision.payload, Decision.snapshot]
+        columns += [Decision.payload, Decision.snapshot, Decision.correlation_id, Decision.trace_id, Decision.task_id]
     stmt = select(*columns).order_by(Decision.created_at.desc()).limit(limit)
     if conid is not None:
         stmt = stmt.where(Decision.conid == conid)
