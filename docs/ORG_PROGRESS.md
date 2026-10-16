@@ -117,6 +117,9 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-16 | Host: a snap-docker eltávolítva (letörölte a `/run/docker.sock`-ot; `systemctl restart docker.socket docker` után OK); a régi containerek hálózatai elvesztek, `make down` / `ibkr-down` után újraépültek | Csak Docker CE fut |
 | 2026-10-16 | Egy közös Postgres-role marad: az „egyedül a knowledge service ír” megállapodás, DB-jogosultsággal még nincs kikényszerítve | Mint az A2A-auth: később |
 | 2026-10-16 | Szabályfájl: `etf_treatment` → minden ETF `diversified` | Az ETF-döntés (1.b) rögzítése |
+| 2026-10-16 | **A szervezeti modell a README-ben**, naprakészen tartva (egységek, pozíciók, folyamatok, szabályok, ellenőrzési pontok); a `docs/ORG.md` történeti | Mihály kérése |
+| 2026-10-16 | **MVP-szemlélet**: opcióknál az implementációban legegyszerűbb az alapértelmezés; a meglévő (MVP-n túli) elemeket nem bontjuk vissza | Mihály |
+| 2026-10-16 | 6.3: a lánc szinkron marad, `TASK_TIMEOUT` 10 → 60 perc; a PM-kapu az IBKR MCP-n át olvas (csak az MCP és az Execution van az `ibkr-backend` hálózaton); zárt piacnál függő megbízás, a 15:30-as futás (addig `make execute-pending`) adja le; azonnal éles paper megbízás; nincs visszadobási kör (MVP-eltérés a „max. 2 kör” szabálytól); Research cégjegyzet nélkül, Execution egyszeri státusz-lekérdezéssel | Mihály (1: legegyszerűbb, 2: magyarázat után, 3.b, 4.b) |
 | 2026-10-16 | **Nincs portfólió-tükör** (`positions_mirror`, `account_mirror` kimarad): pozíció és számla élőben az ibkrfacade-ből; minden döntés mellé pillanatkép (NAV, cash, érintett pozíciók) a `decisions` sorban; tükör a 7. fázisban, a dashboarddal | Mihály (3.a): egyszerűség |
 
 ## Feltételezések (megerősítésre várnak)

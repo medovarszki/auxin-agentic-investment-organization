@@ -5,6 +5,8 @@ Ez a fájl a repón dolgozó fejlesztő-sessionöknek szól, nem a futó agentek
 ## Kezdés
 - Olvasd el a `docs/ORG_PROGRESS.md`-t: döntési napló, kész fázisok, nyitott kérdések, következő lépés.
 - Fázisonként haladunk; egy fázis végén frissítsd az ORG_PROGRESS.md-t.
+- A `README.md` „Szervezeti modell” fejezete a szervezet naprakész leírása (egységek, pozíciók, folyamatok, szabályok, ellenőrzési pontok): minden szerep-, folyamat- vagy szabályváltozással együtt frissítsd (Mihály kérése, 2026-10-16).
+- MVP készül: döntési opcióknál az implementációban legegyszerűbbet javasold elsőnek.
 
 ## Szabályok
 - Kommunikáció: tömör, magyar nyelvű, technikai kifejezések angolul.
