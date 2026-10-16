@@ -106,6 +106,7 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-15 | ibkrfacade `7c2ac19` (Mihály): account summary egyetlen tartós előfizetésből (a Gateway 10.50 figyelmen kívül hagyja a protobuf `cancelAccountSummary`-t → 322), `updated_at`; `/price` automatikus subscribe, `quote_age_seconds`, `stale`, `market_data_type`, `max_age` → 422 `STALE_MARKET_DATA`. 68 unit teszt zöld (ellenőrizve) | A PM a NAV-ot és a friss árat ebből kapja |
 | 2026-10-15 | **Nincs token az ibkrfacade felé**: az ibkrfacade `.env`-jében `IBKR_SECURITY_ENABLED=false`; a facade csak a belső `ibkr-backend` hálózaton érhető el | Mihály döntése: egyelőre csak működjön a kommunikáció (mint az A2A-nál) |
 | 2026-10-15 | **6.1 IBKR MCP szerver** (`mcp-servers/ibkr`, `mcp` 2.3.0 – a PyPI legfrissebb, 2026-10-02 –, `MCPServer`, stateless streamable HTTP, JSON-válasz): 7 olvasó tool, tömörített válaszok, a facade-hibák `KÓD: részletek` tool-hibaként; csak az MCP container van az `ibkr-backend` hálózaton. A Market & Sentiment megkapja (`AUXIN_MCP_IBKR_URL`), az ötletek IBKR conidra oldva, max. 3 ötlet (a séma is) | Az Execution determinisztikus, ezért nincs író tool; a portfólió- és tiltólista-szűrés (5.a) a 6.2 után |
+| 2026-10-15 | **6.1 élő teszt kész** Mihály gépén: make scan → 2 ötlet (XLV conid 4215205, XLE conid 4215217, ARCA, USD), mind COMPLETED, közös trace; az agent az MCP-n át token nélkül hívta a facade-et (search, history, price, contract, account); 10 turn | Az ötletekben először van valódi IBKR conid |
 
 ## Feltételezések (megerősítésre várnak)
 
@@ -115,6 +116,7 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 ## Nyitott kérdések
 
 - A szektorszabály felülvizsgálata (jelenleg ideiglenes).
+- ETF-ek szektora a 25%-os szabályhoz: az IBKR `industry` ETF-eknél üres (pl. XLV, XLE). Opciók: a) a Research fix listából adja meg (széles index → „Broad”), részvényeknél IBKR `industry`; b) ETF külön kategória szektorlimit nélkül; c) az ibkrfacade oldja meg.
 - A `usage.server_tool_use.web_search_requests` 0, holott volt keresés: a Claude Code a WebSearch-öt külön al-hívásban futtatja. A valódi keresés- és költségszámot a runtime-nak kell majd gyűjtenie (a `cost_usd` tartalmazza-e az al-hívást? ellenőrizendő).
 - Előfizetési keret: kell-e napi taszk-limit, hogy az agentek ne fogyasszák el a heti keretet (a napi teljes review pozíciónként fut)?
 - A2A auth (agentenkénti token, ki kitől mit fogadhat el) és TLS a belső forgalomra: később (Mihály).
