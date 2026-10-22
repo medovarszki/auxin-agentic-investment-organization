@@ -50,7 +50,7 @@ risk_bucket:
     2: {name: mérsékelt, max_weight_pct: 25.0}      # nyereséges, piaci átlag körüli volatilitás; szektor-ETF
     3: {name: növekedési, max_weight_pct: 25.0}     # gyors növekedés vagy ciklikus, átlag feletti volatilitás
     4: {name: spekulatív, max_weight_pct: 25.0}     # veszteséges / korai szakasz, kis cég, bináris kimenetek
-  review_note: "4 x 25%: teljes befektetettségnél mind a 4 bucket pontosan 25% lenne; értelmezés Mihállyal egyeztetendő."
+  # Mind a 4 bucket <= 25% NAV (Mihály, 2026-10-22): a cash a puffer, teljes befektetettség csak tökéletes egyensúlynál.
 
 rejections:
   max_rounds_per_item: 2       # utána az ötlet / javaslat failed
