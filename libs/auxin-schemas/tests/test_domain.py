@@ -103,3 +103,23 @@ def test_market_scan_result_accepts_unresolved_instrument():
     )
     assert result.ideas[0].instrument.conid is None
     assert MarketScanResult.model_json_schema()["required"] == ["market_view", "ideas"]
+
+
+def test_risk_bucket_limit_caps_the_buy():
+    from auxin_schemas.domain import PMDecision
+    from auxin_schemas.rules import GateReject, size_buy
+
+    usd = ASML.model_copy(update={"currency": "USD"})
+    p = proposal(instrument=usd, conviction=5)
+    held = [{"conid": 1, "market_value": 20_000.0, "industry": "Energy", "asset_class": "stock", "risk_bucket": 4},
+            {"conid": 2, "market_value": 30_000.0, "industry": "Energy", "asset_class": "etf", "risk_bucket": None}]
+    kwargs = dict(nav=100_000.0, cash=50_000.0, base_currency="USD", price=100.0, industry="Technology", holdings=held)
+    # bucket 4 already holds 20% of NAV: only 5% room left; the unclassified position does not count
+    quantity, details = size_buy(p, RULES, risk_bucket=4, **kwargs)
+    assert (quantity, details["binding_limit"], details["unclassified_holdings"]) == (50, "risk_bucket", [2])
+    assert size_buy(p, RULES, risk_bucket=1, **kwargs)[0] == 100
+    with pytest.raises(GateReject) as exc:
+        size_buy(p, RULES, risk_bucket=4, **kwargs | {"holdings": [held[0] | {"market_value": 25_000.0}]})
+    assert exc.value.rule == "risk_bucket"
+    with pytest.raises(ValidationError):
+        PMDecision(decision="BUY", rationale="x", risk_bucket=5)

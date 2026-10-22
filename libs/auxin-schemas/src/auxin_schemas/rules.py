@@ -36,10 +36,12 @@ def size_buy(
     price: float,
     industry: str | None,
     holdings: list[dict],
+    risk_bucket: int | None = None,
 ) -> tuple[int, dict]:
     """Quantity of a new BUY under the portfolio rules, and how it was computed.
 
-    holdings: open positions as {conid, market_value, industry, asset_class}; values in the base currency.
+    holdings: open positions as {conid, market_value, industry, asset_class, risk_bucket}; values in the base
+    currency. risk_bucket: the PM's class for the new instrument (1-4); holdings without one are not counted.
     Raises GateReject when no order is allowed. MVP: only instruments in the account's base currency (no FX).
     """
     inst = proposal.instrument
@@ -61,12 +63,19 @@ def size_buy(
         sector_used = sum(h["market_value"] for h in holdings
                           if h.get("asset_class") == "stock" and h.get("industry") == industry)
         limits["sector"] = nav * rules["sector"]["max_sector_weight_pct"] / 100 - sector_used
+    bucket_used = None
+    # Risk bucket limit: stocks and ETFs alike, by the PM's classification.
+    if risk_bucket is not None:
+        bucket_used = sum(h["market_value"] for h in holdings if h.get("risk_bucket") == risk_bucket)
+        limits["risk_bucket"] = nav * rules["risk_bucket"]["buckets"][risk_bucket]["max_weight_pct"] / 100 - bucket_used
     amount = min(limits.values())
     quantity = int(amount // price)
     details = {
         "price": price, "upside_pct": round(upside, 2), "conviction": proposal.conviction,
         "target_weight_pct": weight_pct, "nav": nav, "cash": cash, "industry": industry,
-        "sector_value_before": sector_used, "limits": {k: round(v, 2) for k, v in limits.items()},
+        "sector_value_before": sector_used, "risk_bucket": risk_bucket, "risk_bucket_value_before": bucket_used,
+        "unclassified_holdings": [h["conid"] for h in holdings if h.get("risk_bucket") is None],
+        "limits": {k: round(v, 2) for k, v in limits.items()},
         "binding_limit": min(limits, key=limits.get), "quantity": quantity,
         "order_value": round(quantity * price, 2),
     }

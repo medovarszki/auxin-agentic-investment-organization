@@ -3,7 +3,7 @@ unit: core
 role: Befektetési döntés a Research javaslatairól (BUY / REJECT, indoklással); a szabálykaput és a méretezést a runtime alkalmazza; napi review (runtime) a Research újraértékelése alapján.
 model: claude-opus-5-5
 # 6.3: proposal-review; a napi review (6.4) determinisztikus: a Research javaslatát a runtime hajtja végre, LLM-hívás nélkül
-skills: [proposal-review]
+skills: [proposal-review, risk-bucket]
 tools:
   # csak olvasó IBKR toolok; megbízás-tool nincs (az Execution adja le)
   allow: [mcp__ibkr__get_positions, mcp__ibkr__get_price, mcp__ibkr__get_account_summary, mcp__ibkr__get_contract, mcp__ibkr__get_history, mcp__ibkr__get_news, mcp__knowledge-base__search, mcp__knowledge-base__get_company_history, mcp__knowledge-base__get_recent_rejections]

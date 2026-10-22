@@ -36,7 +36,7 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 |---|---|---|---|---|---|
 | **Market & Sentiment** | LLM-agent | működik | napi piaci összkép, sentiment, narratíva; legfeljebb 3 ötlet IBKR conidra oldva; kihagyja, ami a portfólióban van vagy 30 napon belül elutasított | `scan_trigger` | `idea` |
 | **Research** | LLM-agent | működik (6.3) | ötlet-kritika és research (web, IBKR, tudásbázis); javaslat célárral, horizonttal, ≥3 kockázattal, ≥3 datált forrással, conviction 1–5; napi pozíció-újraértékelés (`position-review`: HOLD / REDUCE cél-súllyal / CLOSE); tanulság a lezárt pozíciókból (`lesson`, a runtime írja a `lessons` táblába) | `idea`, `review_request`, `decision_outcome` | `proposal`, `idea_reject`, `review_result`, `lesson` |
-| **Portfolio Manager** | LLM-agent + determinisztikus szabálykapu | működik (6.3) | dönt a javaslatról (indoklással); a runtime ellenőrzi a szabályokat és méretez (az IBKR MCP-n át olvas; zárt piacnál az utolsó záróárral); napi review: a runtime a Research javaslatát LLM nélkül hajtja végre (REDUCE / CLOSE → SELL) | `proposal`, `review_trigger` | `order`, `proposal_reject`, `review_request`, `execute_pending` |
+| **Portfolio Manager** | LLM-agent + determinisztikus szabálykapu | működik (6.3) | dönt a javaslatról (indoklással), és kockázati bucketbe (1–4) sorolja az instrumentumot (`risk-bucket`); a runtime ellenőrzi a szabályokat és méretez (az IBKR MCP-n át olvas; zárt piacnál az utolsó záróárral); napi review: a runtime a Research javaslatát LLM nélkül hajtja végre (REDUCE / CLOSE → SELL) | `proposal`, `review_trigger` | `order`, `proposal_reject`, `review_request`, `execute_pending` |
 | **Execution** | determinisztikus service | működik (6.3) | ellenőrzés (paper számla, egyezés a PM döntésével a naplóban, SELL ≤ tartott mennyiség, friss ár), megbízás csak kereskedési időben (zárt piacnál függő, `make execute-pending` / 15:30), market / DAY, idempotens (`client_order_id = decision_id`); az egyetlen IBKR írási joggal | `order`, `execute_pending` | `fill`, `order_reject` |
 
 ### Támogató szolgáltatások (nem szerepek)
@@ -82,6 +82,7 @@ Lezárt egy pozíció, ha az eladások kiadják a vett mennyiséget; hozam = (be
 - Belépés: legalább 15% hozampotenciál a célárig.
 - Méret conviction szerint: 1–5 → 2 / 4 / 6 / 8 / 10% NAV; új pozíció ≤ 10% NAV.
 - Szektor ≤ 25% NAV (IBKR `industry`, csak részvények; az ETF-ekre szektorlimit nincs).
+- Kockázati bucket ≤ 25% NAV bucketenként (részvény és ETF): 1 stabil, 2 mérsékelt, 3 növekedési, 4 spekulatív; a besorolás a PM ítélete, a vételi orderrel a naplóba kerül; a szabály előtt vett pozíció nem számít bele.
 - Csak szabad cash, nincs tőkeáttétel; market order, DAY; csak paper (`DU…`) számla.
 - MVP-korlátok: csak a számla bázisdevizájában (USD) jegyzett instrumentum, nem-US cégnél ADR (nincs FX-átváltás), meglévő pozíció nem növelhető, nincs visszadobási kör (az elutasítás végleges).
 - Megbízás előtt nincs emberi jóváhagyás (tech demo, paper számla); élő számlánál újra kötelező.
@@ -91,8 +92,8 @@ Lezárt egy pozíció, ha az eladások kiadják a vett mennyiséget; hozam = (be
 | Ki | Mit dobhat vissza | Mi alapján |
 |---|---|---|
 | Research | Market & Sentiment ötletét | gyenge tézis, hiányzó adat, < 15% hozampotenciál |
-| Portfolio Manager (LLM) | Research javaslatát | befektetési ítélet, indoklással |
-| PM szabálykapu (determinisztikus) | a PM döntését | `portfolio-rules.yaml`: upside, pozíció-, szektorlimit, szabad cash; bázisdeviza, már tartott pozíció |
+| Portfolio Manager (LLM) | Research javaslatát | befektetési ítélet, indoklással; kockázati bucket |
+| PM szabálykapu (determinisztikus) | a PM döntését | `portfolio-rules.yaml`: upside, pozíció-, szektor-, bucketlimit, szabad cash; bázisdeviza, már tartott pozíció |
 | Execution (determinisztikus) | megbízást | nem paper számla, eltér a PM döntésétől, SELL több a tartottnál, nincs friss ár |
 
 ## Struktúra

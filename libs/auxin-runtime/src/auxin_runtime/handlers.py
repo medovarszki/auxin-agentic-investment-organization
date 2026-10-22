@@ -201,6 +201,9 @@ def portfolio_manager(desc: AgentDescriptor, agent_dir: Path) -> Handler:
             await reject(out.rationale, None)
 
         snapshot = await _portfolio(inst.conid)
+        buckets = await _risk_buckets([h["conid"] for h in snapshot["holdings"]])
+        for h in snapshot["holdings"]:
+            h["risk_bucket"] = buckets.get(h["conid"])
         account, quote = snapshot["account"], snapshot["price"]
         price = None if quote.get("stale") else quote.get("ask") or quote.get("last")
         if not price:
@@ -216,7 +219,7 @@ def portfolio_manager(desc: AgentDescriptor, agent_dir: Path) -> Handler:
                 rules, nav=float(account["net_liquidation"]),
                 cash=min(float(account["total_cash_value"]), float(account.get("available_funds") or 0)),
                 base_currency=account["currency"], price=float(price), industry=snapshot["contract"].get("industry"),
-                holdings=snapshot["holdings"],
+                holdings=snapshot["holdings"], risk_bucket=out.risk_bucket,
             )
         except GateReject as exc:
             await reject(f"PM approved, rule gate rejected: {exc.reason}", exc.rule, snapshot)
@@ -224,9 +227,10 @@ def portfolio_manager(desc: AgentDescriptor, agent_dir: Path) -> Handler:
         order = Order(decision_id=uuid.uuid4(), instrument=inst, side="BUY", quantity=quantity)
         await record_decision(DecisionRecord(
             id=order.order_id, kind=DecisionKind.ORDER, agent=desc.name, decision_id=order.decision_id,
-            summary=f"BUY {quantity} {inst.symbol} (~{sizing['order_value']} {inst.currency}): {out.rationale}",
+            summary=f"BUY {quantity} {inst.symbol} (~{sizing['order_value']} {inst.currency}, "
+                    f"risk bucket {out.risk_bucket}): {out.rationale}",
             payload={"order": order.model_dump(mode="json"), "proposal_id": str(proposal.proposal_id),
-                     "rationale": out.rationale, "sizing": sizing, **usage},
+                     "rationale": out.rationale, "risk_bucket": out.risk_bucket, "sizing": sizing, **usage},
             snapshot=snapshot, **ref))
         task = await send(
             sender=desc.name, recipient="execution", type=MessageType.ORDER,
@@ -234,10 +238,23 @@ def portfolio_manager(desc: AgentDescriptor, agent_dir: Path) -> Handler:
             task_id=msg.task_id, correlation_id=msg.meta.correlation_id, trace_id=msg.meta.trace_id,
             reference_task_ids=[msg.task_id],
         )
-        return {"decision": out.decision, "rationale": out.rationale, "order": order.model_dump(mode="json"),
+        return {"decision": out.decision, "rationale": out.rationale, "risk_bucket": out.risk_bucket, "order": order.model_dump(mode="json"),
                 "sizing": sizing, **usage, "execution": task_summary(task)}
 
     return handle
+
+
+async def _risk_buckets(conids: list[int]) -> dict[int, int]:
+    """The PM's risk bucket per held instrument: the one recorded with its latest BUY order in the decision log.
+    Positions bought before the bucket rule (or outside Auxin) have none and are left out."""
+    buckets = {}
+    for conid in conids:
+        rows = await get_decisions(conid=conid, kind=[DecisionKind.ORDER.value], days=400, limit=50)
+        bucket = next((r["payload"].get("risk_bucket") for r in rows
+                       if r["payload"].get("order", {}).get("side") == "BUY" and r["payload"].get("risk_bucket")), None)
+        if bucket:
+            buckets[conid] = bucket
+    return buckets
 
 
 async def _holdings() -> tuple[dict, list[Holding]]:

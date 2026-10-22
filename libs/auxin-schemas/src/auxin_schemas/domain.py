@@ -117,6 +117,8 @@ class PMDecision(_Model):
 
     decision: Literal["BUY", "REJECT"]
     rationale: str = Field(min_length=1)
+    # Company risk class (skill risk-bucket, portfolio-rules.yaml risk_bucket): 1 = stable ... 4 = speculative
+    risk_bucket: Literal[1, 2, 3, 4]
 
 
 class ProposalReject(_Model):
