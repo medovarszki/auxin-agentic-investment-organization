@@ -1,2 +1,2 @@
-# One host per line. Web search / fetch runs on the Anthropic API side (ADR 0001).
+# One host per line. Web search / fetch runs on the Anthropic API side.
 api.anthropic.com

@@ -92,10 +92,10 @@ A `decision-evaluator` service (determinisztikus, nem LLM) időzítetten kiért�
 | Portfolio Manager | csak olvas (pozíciók, ár, számla) | olvas | Research, Execution |
 | Execution | ír / olvas | nincs | Portfolio Manager (válasz) |
 
-Az agentek A2A 1.0-n kommunikálnak (ADR 0001); a közös Postgres task store és az OTel trace-ek adják az auditot. Az üzenetsémák a 3. fázisban, az A2A-réteg az 5. fázisban rögzül; a fenti üzenettípus-nevek munkanevek.
+Az agentek A2A 1.0-n kommunikálnak; a közös Postgres task store és az OTel trace-ek adják az auditot. Az üzenetsémák a 3. fázisban, az A2A-réteg az 5. fázisban rögzül; a fenti üzenettípus-nevek munkanevek.
 
 ## Ismert korlátok és nyitott pontok
 
 - **Subagentek:** a subagentek nem indíthatnak további subagenteket. Ha a Research egy ötletet párhuzamos subagentekkel elemez (pl. pénzügyek, ellátási lánc), azok tovább már nem bonthatnak. A tervet ez nem akadályozza.
 - **ibkrfacade:** a saját stackjében fut (IB Gateway, Redis, REST), a `/account/summary` adja a NAV-ot és a cash-t a 10%-os súlyszabályhoz. Token nélkül hívjuk (`IBKR_SECURITY_ENABLED=false`), ezért csak a belső `ibkr-backend` hálózaton érhető el: az LLM-agentek az `mcp-servers/ibkr` olvasó tooljain át, az Execution service (6.3) közvetlenül.
-- **Szektor-besorolás:** az IBKR `industry` mezője (nem GICS), mert nincs külön adatszolgáltató (ADR 0001).
+- **Szektor-besorolás:** az IBKR `industry` mezője (nem GICS), mert nincs külön adatszolgáltató.

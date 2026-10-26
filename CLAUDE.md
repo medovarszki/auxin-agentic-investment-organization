@@ -3,8 +3,8 @@
 Ez a fájl a repón dolgozó fejlesztő-sessionöknek szól, nem a futó agenteknek (azok promptja: `agents/<név>/CLAUDE.md`).
 
 ## Kezdés
-- Olvasd el a `docs/ADR.md`-t: döntési napló, kész fázisok, nyitott kérdések, következő lépés.
-- Fázisonként haladunk; egy fázis végén frissítsd az ADR.md-t.
+- Olvasd el a `README.md`-t és a `docs/ORG.md`-t (szervezeti terv).
+- Fázisonként haladunk.
 - A `README.md` „Szervezeti modell” fejezete a szervezet naprakész leírása (egységek, pozíciók, folyamatok, szabályok, ellenőrzési pontok): minden szerep-, folyamat- vagy szabályváltozással együtt frissítsd (Mihály kérése, 2026-10-16).
 - MVP készül: döntési opcióknál az implementációban legegyszerűbbet javasold elsőnek.
 
@@ -15,7 +15,7 @@ Ez a fájl a repón dolgozó fejlesztő-sessionöknek szól, nem a futó agentek
 - Titok soha nem kerül a repóba vagy image-be; csak `.env.example`.
 - Agent-container: non-root user, legkisebb jogosultság, egress allowlist, erőforrás- és költséglimitek.
 - Pénzügy: alapértelmezés az IBKR paper számla; IBKR írási jog csak az Execution agenté.
-- Verziókat (Agent SDK, A2A, OTel GenAI, broker API) webkereséssel ellenőrizd, és rögzítsd a döntési naplóban.
+- Verziókat (Agent SDK, A2A, OTel GenAI, broker API) webkereséssel ellenőrizd, és rögzítsd a commit üzenetében.
 
 ## Konvenciók
 - Agent: `agents/<név>/` (kebab-case); skill: `agents/<név>/skills/<skill>/SKILL.md`.

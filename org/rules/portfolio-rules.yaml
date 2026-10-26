@@ -25,7 +25,7 @@ position:
   # weight = position_market_value / NAV * 100, a megbízás teljesülése utáni becsült állapotra
 
 sector:
-  # IBKR ContractDetails.industry (pl. "Technology"); nincs külön adatszolgáltató, ezért nem GICS (ADR 0001)
+  # IBKR ContractDetails.industry (pl. "Technology"); nincs külön adatszolgáltató, ezért nem GICS
   classification: IBKR_industry
   max_sector_weight_pct: 25.0
   # Egy új pozíció vagy növelés nem viheti a szektor összsúlyát a limit fölé.
