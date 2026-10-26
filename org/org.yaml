@@ -6,10 +6,7 @@ units:
     name: Core befektetési egység
     status: active
     positions:
-      - id: market-sentiment
-        agent: agents/market-sentiment
-        reports_to: portfolio-manager
-      - id: research
+      - id: research  # Market & Sentiment és Research egy agentben (Mihály, 2026-10-26)
         agent: agents/research
         reports_to: portfolio-manager
         also_acts_as: [verifier]

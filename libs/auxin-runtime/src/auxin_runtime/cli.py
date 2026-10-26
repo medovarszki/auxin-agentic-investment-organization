@@ -23,7 +23,7 @@ from auxin_runtime.handlers import HANDLERS
 from auxin_runtime.runner import run_task
 
 # Output schema of each agent's one-shot run.
-OUTPUTS = {"market-sentiment": MarketScanResult}
+OUTPUTS = {"research": MarketScanResult}
 
 
 def _run(agent_dir: Path, trigger: str) -> int:
@@ -70,7 +70,7 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("serve", help="run the A2A server")
     trig = sub.add_parser("trigger", help="send one trigger message to an agent")
-    trig.add_argument("--to", required=True, help="recipient agent, e.g. market-sentiment")
+    trig.add_argument("--to", required=True, help="recipient agent, e.g. research")
     trig.add_argument("--type", default=MessageType.SCAN_TRIGGER.value)
     trig.add_argument("--payload", default="{}", help="JSON payload")
     run = sub.add_parser("run", help="run one task locally and exit")

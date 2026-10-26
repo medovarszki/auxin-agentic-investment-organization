@@ -14,4 +14,3 @@ messages:
 permissions: {ibkr: read_write, knowledge_base: read}
 egress: []
 limits: {max_concurrent_tasks: 1, max_turns: 0}
-budget: {daily_usd: 0}

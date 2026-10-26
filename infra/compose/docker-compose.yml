@@ -35,7 +35,7 @@ x-llm-env: &llm-env
   # Only the Claude API goes through the proxy; A2A, MCP and Postgres stay on the internal network.
   HTTPS_PROXY: http://egress-proxy:3128
   HTTP_PROXY: http://egress-proxy:3128
-  NO_PROXY: localhost,127.0.0.1,postgres,market-sentiment,research,portfolio-manager,execution,mcp-ibkr,knowledge,jaeger
+  NO_PROXY: localhost,127.0.0.1,postgres,research,portfolio-manager,execution,mcp-ibkr,knowledge,jaeger
   AUXIN_MCP_IBKR_URL: http://mcp-ibkr:8000/mcp
   AUXIN_MCP_KNOWLEDGE_BASE_URL: http://knowledge:8000/mcp
   AUXIN_KNOWLEDGE_URL: http://knowledge:8000
@@ -85,15 +85,6 @@ services:
     restart: unless-stopped
     cpus: 1
     mem_limit: 512m
-
-  market-sentiment:
-    <<: *agent-hardening
-    build:
-      context: ../..
-      dockerfile: agents/market-sentiment/Dockerfile
-    image: auxin-market-sentiment
-    environment: *llm-env
-    depends_on: *llm-depends
 
   research:
     <<: *agent-hardening
@@ -170,7 +161,6 @@ services:
       AUXIN_KNOWLEDGE_URL: http://knowledge:8000
     depends_on:
       knowledge: {condition: service_healthy}
-      market-sentiment: {condition: service_started}
       research: {condition: service_started}
       portfolio-manager: {condition: service_started}
       execution: {condition: service_started}

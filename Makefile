@@ -28,8 +28,8 @@ ibkr-up:         ## the ibkrfacade stack (gateway, Redis, facade), built from it
 ibkr-down:
 	$(IBKR) down
 
-scan: up         ## A2A scan_trigger to Market & Sentiment; follows the task, prints the result JSON
-	$(COMPOSE) run --rm operator trigger --to market-sentiment
+scan: up         ## A2A scan_trigger to Research (Market & Sentiment); follows the task, prints the result JSON
+	$(COMPOSE) run --rm operator trigger --to research
 
 tasks:           ## the shared task table: who did what, in which state, in which flow
 	$(PSQL) "SELECT last_updated, owner AS agent, metadata->>'sender' AS sender, metadata->>'type' AS type, \
@@ -67,16 +67,16 @@ db-revision: build up
 	  --entrypoint alembic knowledge -c /migrations/alembic.ini revision --autogenerate -m "$(m)"
 
 logs:            ## agent, Execution, MCP, knowledge, scheduler and dashboard logs (JSON events)
-	$(COMPOSE) logs -f market-sentiment research portfolio-manager execution mcp-ibkr knowledge scheduler dashboard
+	$(COMPOSE) logs -f research portfolio-manager execution mcp-ibkr knowledge scheduler dashboard
 
 ui: up           ## dashboard and Jaeger, localhost only
 	@echo "dashboard: http://localhost:8080   Jaeger: http://localhost:16686"
 
 scan-local: up   ## phase 4 one-shot run without A2A
-	$(COMPOSE) run --rm market-sentiment run --trigger scan
+	$(COMPOSE) run --rm research run --trigger scan
 
 egress-test: up  ## example.com must be blocked, api.anthropic.com must pass
-	$(COMPOSE) run --rm -T --entrypoint python market-sentiment - < scripts/egress_check.py
+	$(COMPOSE) run --rm -T --entrypoint python research - < scripts/egress_check.py
 
 down:            ## Auxin services only; the broker stack: make ibkr-down
 	$(COMPOSE) down

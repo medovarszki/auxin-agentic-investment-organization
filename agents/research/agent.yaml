@@ -1,17 +1,21 @@
 name: research
 unit: core
-role: Ötlet-kritika és research → javaslat vagy elutasítás; napi pozíció-újraértékelés (HOLD / REDUCE / CLOSE); tanulság a lezárt pozíciókból.
+role: "Két funkció egy agentben (Mihály, 2026-10-26): Market & Sentiment (napi piaci összkép, narratíva, 0–3 ötlet) és Research (ötlet-kritika → javaslat vagy elutasítás; napi pozíció-újraértékelés HOLD / REDUCE / CLOSE; tanulság a lezárt pozíciókból)."
 model: claude-opus-5-5
-# 6.3: idea-challenge; 6.4: position-review; 6.5: lesson
-skills: [idea-challenge, position-review, lesson]
+# Market & Sentiment: market-scan, narrative-and-sentiment, idea-generation; Research: idea-challenge (6.3),
+# position-review (6.4), lesson (6.5)
+skills: [market-scan, narrative-and-sentiment, idea-generation, idea-challenge, position-review, lesson]
 tools:
   # WebSearch / WebFetch: szerver-oldali (Anthropic API), a 4. fázisban ellenőrizve
-  allow: [WebSearch, WebFetch, mcp__ibkr__get_price, mcp__ibkr__get_history, mcp__ibkr__get_news, mcp__ibkr__get_contract, mcp__ibkr__search_contract, mcp__knowledge-base__*]
+  # get_positions: a scan kiszűri a portfólióban lévőt (5.a)
+  allow: [WebSearch, WebFetch, mcp__ibkr__get_price, mcp__ibkr__get_history, mcp__ibkr__get_news, mcp__ibkr__get_contract, mcp__ibkr__search_contract, mcp__ibkr__get_positions, mcp__knowledge-base__*]
 mcp_servers: [ibkr, knowledge-base]
 messages:
-  consumes: [idea, review_request, decision_outcome]
+  # scan_trigger: scan, majd minden ötlet kritikája ugyanabban a taszkban; idea: egy ötlet kézi kritikája
+  consumes: [scan_trigger, idea, review_request, decision_outcome]
   produces: [proposal, idea_reject, review_result, lesson]
 permissions: {ibkr: read, knowledge_base: read}  # a tudásbázisba a runtime ír a strukturált kimenetből
 egress: []
+schedule:
+  - {name: daily-market-scan, cron: "0 9 * * 1-5"}  # Europe/Budapest
 limits: {max_concurrent_tasks: 2, max_turns: 80}
-budget: {daily_usd: 30}

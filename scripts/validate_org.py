@@ -18,6 +18,7 @@ EXTERNAL_PRODUCERS = {
     "review_trigger": "scheduler",
     "execute_pending": "scheduler",
     "decision_outcome": "scheduler",  # its evaluate job (the decision evaluator, 6.5)
+    "idea": "operator",  # a manual idea to Research (the scan challenges its own ideas in-process, 2026-10-26)
 }
 
 

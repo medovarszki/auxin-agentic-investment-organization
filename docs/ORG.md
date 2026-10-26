@@ -1,6 +1,6 @@
 # Auxin szervezeti terv (1. fázis)
 
-Állapot: elfogadva 2026-10-14; **történeti dokumentum**, a naprakész szervezeti modell a [`README.md`](../README.md)-ben van (pl. az Execution azóta determinisztikus service, a verify determinisztikus, portfólió-tükör nincs). A gépileg olvasható megfelelői: [`org/org.yaml`](../org/org.yaml), [`org/rules/portfolio-rules.yaml`](../org/rules/portfolio-rules.yaml), `agents/<név>/agent.yaml`.
+Állapot: elfogadva 2026-10-14; **történeti dokumentum**, a naprakész szervezeti modell a [`README.md`](../README.md)-ben van (pl. az Execution azóta determinisztikus service, a verify determinisztikus, portfólió-tükör nincs, a Market & Sentiment 2026-10-26 óta a Research agent egyik funkciója). A gépileg olvasható megfelelői: [`org/org.yaml`](../org/org.yaml), [`org/rules/portfolio-rules.yaml`](../org/rules/portfolio-rules.yaml), `agents/<név>/agent.yaml`.
 
 ## Szervezeti egységek
 

@@ -9,7 +9,7 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | Fázis | Állapot |
 |---|---|
 | 0. Felderítés és célok | kész (repó-felderítés, monorepo-váz) |
-| 1. Szervezeti terv | kész: `docs/ORG.md`, `org/org.yaml`, `org/rules/portfolio-rules.yaml`, `org/schema/agent.schema.json`, 4 `agent.yaml`, `scripts/validate_org.py` |
+| 1. Szervezeti terv | kész: `docs/ORG.md`, `org/org.yaml`, `org/rules/portfolio-rules.yaml`, `org/schema/agent.schema.json`, 4 `agent.yaml` (2026-10-26 óta 3: Research, PM, Execution), `scripts/validate_org.py` |
 | 2. Technológiai és adatdöntések | kész: [`docs/adr/0001-tech-stack.md`](adr/0001-tech-stack.md) |
 | 3. Feladat- és üzenetmodell | kész: [`docs/TASK_MODEL.md`](TASK_MODEL.md), `libs/auxin-schemas` (29 teszt) |
 | 4. Agent-container sablon | kész: base image, `libs/auxin-runtime`, Market & Sentiment, egress proxy, compose; élő teszt Mihály gépén (2026-10-14): 40 teszt, egress OK, első scan `COMPLETED` (0,80 USD, 8 turn, 2 ötlet) |
@@ -144,6 +144,9 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 | 2026-10-16 | **7. tracing (kód)**: `auxin_a2a.tracing`: OTLP/HTTP közvetlenül a Jaegerbe (`OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318`, collector nélkül; a változó nélkül no-op). A trace id = az Auxin `trace_id` (saját id-generátor a gyökér spanhoz), a szülő span W3C `traceparent`-ként a message metadatában utazik az extension mellett (a séma nem változott). Spanok: `a2a send <type> -> <címzett>` (CLIENT), `a2a task <type>` (SERVER, állapottal), `invoke_agent <agent>` (GenAI semconv: provider, modell, input / output / cache tokenek; plusz turnök, névleges költség), `execute_tool <tool>` (az Agent SDK üzenetfolyamából, tool_use → tool_result, argumentumok 1000 karakterig), minden httpx-hívás (`HTTPXClientInstrumentor`: tudásbázis, IBKR MCP, ibkrfacade). Service-név: az agent neve, `operator`, `scheduler` | Egy trace-en a teljes lánc; a WebSearch-hívások `execute_tool` spanként számolhatók |
 | 2026-10-16 | **7. dashboard (kód)**: `services/dashboard` (`localhost:8080`): portfólió (NAV, cash, pozíciók súllyal, P&L, utolsó review), folyamatok trace szerint (trigger, taszkok, hibák, instrumentumok, napló-események) és részletes idővonal (taszkok + döntések, JSON, Jaeger-link), döntési napló szűrővel, taszkok, lezárt pozíciók és tanulságok. Új `ui` hálózat (nem internal, mert belső hálózaton nem lehet portot publikálni): csak a Jaeger és a dashboard van rajta, mindkettő csak `127.0.0.1`-re publikál. `make ui`; `infra/otel` törölve | Terv 7. |
 | 2026-10-22 | **Kockázati bucketek**: a PM minden javaslatot 4 bucketbe sorol a cég kockázatossága szerint (1 stabil, 2 mérsékelt, 3 növekedési, 4 spekulatív; skill `risk-bucket`, irányértékek: piaci kapitalizáció, béta, volatilitás, nyereségesség, életszakasz; kétes esetben a kockázatosabb); `PMDecision.risk_bucket` (1–4); a runtime-kapu (`size_buy`) bucketenként ≤ 25% NAV-ot enged (`portfolio-rules.yaml` `risk_bucket`), a tartott pozíciók bucketje a legutóbbi BUY order naplósorából jön; bucket nélküli régi pozíció (TSM) nem számít bele | Mihály kérése; a determinisztikus kapu a szektorlimit mintájára. Értelmezés: mind a 4 bucket ≤ 25% NAV (a NAV a cash-t is tartalmazza, így a cash a puffer) – Mihály döntése |
+| 2026-10-26 | **A Market & Sentiment és a Research egy agent** (`agents/research`, két funkcióval): a `scan_trigger` a Researchhez megy; a scan után minden ötlet a naplóba kerül, és a Research ugyanabban a taszkban, egymás után, külön Agent SDK-sessionben megtámadja (`idea-challenge`); egy elutasított vagy hibás kritika nem állítja meg a többit. Egy CLAUDE.md, 6 skill, a két tool-lista uniója, `max_turns` 80, `max_concurrent_tasks` 2. Az `idea` üzenet kézi bemenetként megmaradt (`operator`). A `market-sentiment` container, Dockerfile és compose-szolgáltatás megszűnt | Mihály kérése: a prezentációban is egy ágens, két funkcióval |
+| 2026-10-26 | **Nincs napi költségkeret**: a `budget.daily_usd` kikerült az `agent.yaml`-okból, a sémából és a runtime-ból (eddig sem ellenőrizte semmi); a `budget` blokk opcionális, csak a futásonkénti `per_run_usd` maradt, jelenleg egyik agent sem használja. A korábbi Market & Sentiment 2 USD-s futásonkénti kerete az összevonással megszűnt | Mihály: napi költségkerettel nem foglalkozunk |
+| 2026-10-26 | Univerzum: marad a 2026-10-16-i MVP-korlát (csak USD-ben jegyzett instrumentum: US listing, ADR, US-ETF). Nem-USD instrumentumhoz kellene: FX-árfolyam (az ibkrfacade-nek és az IBKR MCP-nek nincs FX-végpontja), devizahelyes NAV-, cash-, szektor- és bucket-összegzés, devizaátváltás vagy negatív devizaegyenleg kezelése az Executionben, piaci adat-előfizetés a nem-US tőzsdékre, és devizahelyes P&L az evaluatorban | Mihály: ha egyszerűbb, maradjon USD; ez jóval nagyobb munka |
 
 ## Feltételezések (megerősítésre várnak)
 
@@ -155,10 +158,9 @@ Az indító brief: „Auxin – finomított indító prompt (agentic alapkezelő
 - A napi review egyelőre nem soroltatja újra a pozíciókat kockázati bucketbe.
 - A szektorszabály felülvizsgálata (jelenleg ideiglenes).
 - A `usage.server_tool_use.web_search_requests` 0, holott volt keresés: a Claude Code a WebSearch-öt külön al-hívásban futtatja. A keresések száma a 7. fázistól az `execute_tool WebSearch` spanokból látszik; hogy a `cost_usd` tartalmazza-e az al-hívást, még ellenőrizendő.
-- Előfizetési keret: kell-e napi taszk-limit, hogy az agentek ne fogyasszák el a heti keretet (a napi teljes review pozíciónként fut)?
 - A2A auth (agentenkénti token, ki kitől mit fogadhat el) és TLS a belső forgalomra: később (Mihály).
 - Unit tesztek az `auxin-a2a`-hoz (metaadat-elutasítás, timeout): később (Mihály).
-- A verifier a Research része, így a saját javaslatát nem független szem ellenőrzi; később a risk egységbe költöztethető.
+- A verifier a Research része, így a saját javaslatát nem független szem ellenőrzi; 2026-10-26 óta az ötletet is ugyanaz az agent adja (külön sessionben). Később a risk egységbe költöztethető.
 
 ## Következő lépés
 

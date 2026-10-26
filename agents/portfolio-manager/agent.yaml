@@ -16,4 +16,3 @@ egress: []
 schedule:
   - {name: daily-position-review, cron: "30 15 * * 1-5"}  # Europe/Budapest
 limits: {max_concurrent_tasks: 1, max_turns: 40}
-budget: {daily_usd: 15}

@@ -27,58 +27,6 @@ from auxin_runtime.runner import run_task
 log = logging.getLogger("auxin.runtime")
 
 
-def market_sentiment(desc: AgentDescriptor, agent_dir: Path) -> Handler:
-    """scan_trigger: run the scan, record every idea in the decision log, then hand it to Research as its own
-    task."""
-    require_subscription_auth()
-    options = build_options(desc, agent_dir, MarketScanResult.model_json_schema())
-
-    async def handle(msg: Incoming) -> dict:
-        trigger = msg.payload.get("trigger", "scan")
-        prompt = (agent_dir / "prompts" / f"{trigger}.md").read_text()
-        record = await run_task(desc.name, prompt, options, MarketScanResult, task_id=msg.task_id)
-        if record.state is not TaskState.COMPLETED:
-            raise RuntimeError(record.error)
-        scan = MarketScanResult.model_validate(record.output)
-
-        handoffs = []
-        for idea in scan.ideas:
-            await record_decision(DecisionRecord(
-                id=idea.idea_id,
-                kind=DecisionKind.IDEA,
-                agent=desc.name,
-                summary=idea.thesis,
-                conid=idea.instrument.conid,
-                symbol=idea.instrument.symbol,
-                idea_id=idea.idea_id,
-                payload=idea.model_dump(mode="json"),
-                correlation_id=msg.meta.correlation_id,
-                trace_id=msg.meta.trace_id,
-                task_id=msg.task_id,
-            ))
-            task = await send(
-                sender=desc.name,
-                recipient="research",
-                type=MessageType.IDEA,
-                subject=f"Idea: {idea.instrument.symbol}",
-                payload=idea.model_dump(mode="json"),
-                task_id=msg.task_id,
-                correlation_id=msg.meta.correlation_id,
-                trace_id=msg.meta.trace_id,
-                reference_task_ids=[msg.task_id],
-            )
-            summary = task_summary(task)
-            handoffs.append({"symbol": idea.instrument.symbol, **summary})
-        return {
-            "scan": record.output,
-            "cost_usd": record.cost_usd,
-            "num_turns": record.num_turns,
-            "handoffs": handoffs,
-        }
-
-    return handle
-
-
 def _prompt(agent_dir: Path, name: str, payload: dict) -> str:
     template = (agent_dir / "prompts" / f"{name}.md").read_text()
     return f"{template}\n\n```json\n{json.dumps(payload, indent=2, ensure_ascii=False)}\n```\n"
@@ -96,10 +44,13 @@ async def _llm(desc: AgentDescriptor, prompt: str, options, model, msg: Incoming
 
 
 def research(desc: AgentDescriptor, agent_dir: Path) -> Handler:
-    """idea: challenge it -> proposal (to the PM) or idea_reject; review_request: re-evaluate one open position
-    -> HOLD / REDUCE / CLOSE back to the PM (the task's artifact); decision_outcome: a closed position's result
-    -> lesson (lessons table). The runtime writes everything to the knowledge base."""
+    """One agent, two functions (2026-10-26). Market & Sentiment: scan_trigger -> market scan -> every idea recorded
+    in the decision log, then challenged one after the other in the same task. Research: idea -> proposal (to the
+    PM) or idea_reject; review_request: re-evaluate one open position -> HOLD / REDUCE / CLOSE back to the PM (the
+    task's artifact); decision_outcome: a closed position's result -> lesson (lessons table). The runtime writes
+    everything to the knowledge base."""
     require_subscription_auth()
+    scan_options = build_options(desc, agent_dir, MarketScanResult.model_json_schema())
     options = build_options(desc, agent_dir, ResearchOutput.model_json_schema())
     review_options = build_options(desc, agent_dir, ReviewResult.model_json_schema())
     lesson_options = build_options(desc, agent_dir, LessonDraft.model_json_schema())
@@ -126,13 +77,10 @@ def research(desc: AgentDescriptor, agent_dir: Path) -> Handler:
             snapshot=request.holding.model_dump(mode="json"), **_ctx(msg)))
         return {"review": out.model_dump(mode="json"), **usage}
 
-    async def handle(msg: Incoming) -> dict:
-        if msg.meta.type == MessageType.REVIEW_REQUEST:
-            return await review(msg)
-        if msg.meta.type == MessageType.DECISION_OUTCOME:
-            return await lesson(msg)
-        idea = Idea.model_validate(msg.payload)
-        out, usage = await _llm(desc, _prompt(agent_dir, "idea", msg.payload), options, ResearchOutput, msg)
+    async def challenge(idea: Idea, msg: Incoming) -> dict:
+        """idea -> proposal to the PM, or idea_reject (raises Rejected)."""
+        payload = idea.model_dump(mode="json")
+        out, usage = await _llm(desc, _prompt(agent_dir, "idea", payload), options, ResearchOutput, msg)
         ref = {"conid": idea.instrument.conid, "symbol": idea.instrument.symbol, "idea_id": idea.idea_id, **_ctx(msg)}
         if out.verdict == "reject":
             reject = IdeaReject(idea_id=idea.idea_id, reason=out.reason)
@@ -152,6 +100,42 @@ def research(desc: AgentDescriptor, agent_dir: Path) -> Handler:
             correlation_id=msg.meta.correlation_id, trace_id=msg.meta.trace_id, reference_task_ids=[msg.task_id],
         )
         return {"proposal": proposal.model_dump(mode="json"), **usage, "portfolio_manager": task_summary(task)}
+
+    async def scan(msg: Incoming) -> dict:
+        """Market & Sentiment: the scan, every idea recorded before its challenge; a rejected or failed challenge
+        does not stop the others."""
+        trigger = msg.payload.get("trigger", "scan")
+        prompt = (agent_dir / "prompts" / f"{trigger}.md").read_text()
+        record = await run_task(desc.name, prompt, scan_options, MarketScanResult, task_id=msg.task_id)
+        if record.state is not TaskState.COMPLETED:
+            raise RuntimeError(record.error)
+        result = MarketScanResult.model_validate(record.output)
+
+        challenges = []
+        for idea in result.ideas:
+            await record_decision(DecisionRecord(
+                id=idea.idea_id, kind=DecisionKind.IDEA, agent=desc.name, summary=idea.thesis,
+                conid=idea.instrument.conid, symbol=idea.instrument.symbol, idea_id=idea.idea_id,
+                payload=idea.model_dump(mode="json"), **_ctx(msg)))
+            item = {"symbol": idea.instrument.symbol}
+            try:
+                item |= {"verdict": "propose", **await challenge(idea, msg)}
+            except Rejected as exc:
+                item |= {"verdict": "reject", "reason": str(exc)}
+            except RuntimeError as exc:  # a failed challenge session; the scan goes on with the next idea
+                item |= {"verdict": "failed", "error": str(exc)}
+            challenges.append(item)
+        return {"scan": record.output, "cost_usd": record.cost_usd, "num_turns": record.num_turns,
+                "challenges": challenges}
+
+    async def handle(msg: Incoming) -> dict:
+        if msg.meta.type == MessageType.SCAN_TRIGGER:
+            return await scan(msg)
+        if msg.meta.type == MessageType.REVIEW_REQUEST:
+            return await review(msg)
+        if msg.meta.type == MessageType.DECISION_OUTCOME:
+            return await lesson(msg)
+        return await challenge(Idea.model_validate(msg.payload), msg)
 
     return handle
 
@@ -344,7 +328,6 @@ def execution(desc: AgentDescriptor, agent_dir: Path) -> Handler:
 
 
 HANDLERS = {
-    "market-sentiment": market_sentiment,
     "research": research,
     "portfolio-manager": portfolio_manager,
     "execution": execution,

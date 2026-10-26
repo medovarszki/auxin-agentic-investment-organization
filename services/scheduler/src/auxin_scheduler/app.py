@@ -3,7 +3,7 @@
   serve            run the scheduler (the container's normal mode)
   run-job <job>    run one job now and print its result (scan | review | evaluate)
 
-09:00 scan -> Market & Sentiment, 15:30 review -> Portfolio Manager, 21:00 evaluate: closed positions ->
+09:00 scan -> Research (Market & Sentiment), 15:30 review -> Portfolio Manager, 21:00 evaluate: closed positions ->
 decision_outcome (decision log) -> Research -> lesson. Monday to Friday, no exchange holiday calendar (6.5, 3.a);
 one instance per job, a missed run is not made up.
 """
@@ -39,7 +39,7 @@ async def _send(recipient: str, type: MessageType, subject: str, payload: dict, 
 
 async def scan() -> dict:
     flow_id = str(uuid.uuid4())
-    return await _send("market-sentiment", MessageType.SCAN_TRIGGER, "scan_trigger (scheduled)", {},
+    return await _send("research", MessageType.SCAN_TRIGGER, "scan_trigger (scheduled)", {},
                        flow_id, new_trace_id())
 
 

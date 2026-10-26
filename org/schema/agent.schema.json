@@ -4,7 +4,7 @@
   "title": "Auxin agent descriptor (agent.yaml)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["name", "unit", "role", "model", "skills", "tools", "messages", "permissions", "limits", "budget"],
+  "required": ["name", "unit", "role", "model", "skills", "tools", "messages", "permissions", "limits"],
   "properties": {
     "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
     "unit": {"type": "string"},
@@ -64,9 +64,8 @@
     "budget": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["daily_usd"],
+      "description": "Opcionális futásonkénti keret; napi költségkeret nincs (Mihály, 2026-10-26)",
       "properties": {
-        "daily_usd": {"type": "number", "minimum": 0},
         "per_run_usd": {"type": "number", "exclusiveMinimum": 0}
       }
     }

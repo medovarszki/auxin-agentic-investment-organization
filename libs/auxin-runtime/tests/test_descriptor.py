@@ -3,12 +3,12 @@ from pathlib import Path
 from auxin_runtime.descriptor import build_options, load_descriptor
 
 ROOT = Path(__file__).resolve().parents[3]
-MS = load_descriptor(ROOT / "agents/market-sentiment/agent.yaml")
+RESEARCH = load_descriptor(ROOT / "agents/research/agent.yaml")
 SCHEMA = {"type": "object"}
 
 
 def test_without_mcp_urls_only_builtin_tools_remain():
-    options = build_options(MS, Path("/agent"), SCHEMA, env={})
+    options = build_options(RESEARCH, Path("/agent"), SCHEMA, env={})
     assert options.mcp_servers == {}
     assert options.tools == ["WebSearch", "WebFetch"]
     assert options.allowed_tools == ["WebSearch", "WebFetch"]
@@ -16,7 +16,7 @@ def test_without_mcp_urls_only_builtin_tools_remain():
 
 def test_configured_mcp_server_brings_its_tools_and_token():
     env = {"AUXIN_MCP_IBKR_URL": "http://mcp-ibkr:8000/mcp", "AUXIN_MCP_IBKR_TOKEN": "t"}
-    options = build_options(MS, Path("/agent"), SCHEMA, env=env)
+    options = build_options(RESEARCH, Path("/agent"), SCHEMA, env=env)
     assert options.mcp_servers == {
         "ibkr": {"type": "http", "url": "http://mcp-ibkr:8000/mcp", "headers": {"Authorization": "Bearer t"}}
     }
@@ -26,19 +26,19 @@ def test_configured_mcp_server_brings_its_tools_and_token():
 
 
 def test_wildcard_grants_whole_server():
-    research = load_descriptor(ROOT / "agents/research/agent.yaml")
     env = {"AUXIN_MCP_KNOWLEDGE_BASE_URL": "http://kb:8000/mcp"}
-    options = build_options(research, Path("/agent"), SCHEMA, env=env)
+    options = build_options(RESEARCH, Path("/agent"), SCHEMA, env=env)
     assert "mcp__knowledge-base" in options.allowed_tools
 
 
 def test_limits_and_isolation():
-    options = build_options(MS, Path("/agent"), SCHEMA, env={})
+    options = build_options(RESEARCH, Path("/agent"), SCHEMA, env={})
     assert options.model == "claude-opus-5-5"
     assert options.permission_mode == "dontAsk"
     assert options.strict_mcp_config is True
     assert options.setting_sources == ["project"]
-    assert options.skills == ["market-scan", "narrative-and-sentiment", "idea-generation"]
-    assert options.max_turns == 40
-    assert options.max_budget_usd == 2
+    assert options.skills == ["market-scan", "narrative-and-sentiment", "idea-generation", "idea-challenge",
+                              "position-review", "lesson"]
+    assert options.max_turns == 80
+    assert options.max_budget_usd is None
     assert options.output_format == {"type": "json_schema", "schema": SCHEMA}

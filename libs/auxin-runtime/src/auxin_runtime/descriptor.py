@@ -31,8 +31,7 @@ class Limits(_Spec):
 
 
 class Budget(_Spec):
-    daily_usd: float
-    per_run_usd: float | None = None
+    per_run_usd: float | None = None  # no daily budget (Mihály, 2026-10-26)
 
 
 class Messages(_Spec):
@@ -49,7 +48,7 @@ class AgentDescriptor(_Spec):
     mcp_servers: list[str] = []
     messages: Messages
     limits: Limits
-    budget: Budget
+    budget: Budget = Budget()
 
 
 def load_descriptor(path: Path) -> AgentDescriptor:

@@ -42,4 +42,4 @@ Before you finalize the list:
 
 At most 3 ideas per scan.
 
-For each idea give: `thesis` (one sentence), `rationale` (why now, what could go wrong), and at least one dated source. Research will challenge every idea, so be honest about weak points.
+For each idea give: `thesis` (one sentence), `rationale` (why now, what could go wrong), and at least one dated source. Every idea is challenged next (skill `idea-challenge`), so be honest about weak points.

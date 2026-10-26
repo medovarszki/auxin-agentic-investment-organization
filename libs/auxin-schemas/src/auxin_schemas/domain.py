@@ -62,7 +62,7 @@ class MarketView(_Model):
 
 
 class MarketScanResult(_Model):
-    """Output of one Market & Sentiment scan."""
+    """Output of one Market & Sentiment scan (the Research agent's scan function)."""
 
     market_view: MarketView
     ideas: list[Idea] = Field(max_length=3)  # decision 5.a

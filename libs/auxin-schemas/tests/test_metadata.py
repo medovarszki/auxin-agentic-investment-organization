@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from auxin_schemas.metadata import EXTENSION_URI, MessageMetadata, MessageType, Priority
 
 BASE = dict(
-    sender="market-sentiment",
+    sender="research",
     recipient="research",
     subject="Idea: ASML",
     type=MessageType.IDEA,
