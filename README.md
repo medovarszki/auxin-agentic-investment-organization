@@ -1,22 +1,12 @@
 # Auxin – agentic investment organization
 
-Az Auxin **agentekből álló befektetési alapkezelő**, amely egy valódi alapkezelő szervezetét kívánja modellezni: szervezeti egységek, pozíciók, jelentési vonalak, felelősségi körök, írott befektetési szabályok, ellenőrzési pontok és döntési napló. A szerepeket Claude-alapú (Opus) LLM-agentek és determinisztikus szolgáltatások töltik be. Minden szerep külön Docker containerben fut. Az agentek A2A 1.0 protokollon kommunikálnak, minden feladat egy közös Postgres task store-ba kerül, a döntések egy tudásbázisba. A portfólió egyetlen Interactive Brokers **paper** számla.
-
-## Mi készült el
-
-| Fázis | Eredmény | Élesben bizonyítva |
-|---|---|---|
-| 0–2. Terv | szervezeti terv, szabályfájl, technológiai döntések | – |
-| 3. Feladat- és üzenetmodell | A2A 1.0 taszkállapotok, Auxin metaadat-extension, Pydantic-sémák (`libs/auxin-schemas`) | igen |
-| 4. Agent-container | közös hardenelt base image, Agent SDK runtime, egress proxy allowlisttel | igen |
-| 5. Kommunikáció | minden agent A2A szerver, közös Postgres task store | igen |
-| 6.1–6.2 Adat | IBKR MCP szerver (csak olvasás), tudásbázis-szolgáltatás (REST + MCP) | igen |
-| 6.3 Vétel | ötlet → PM-challenge és döntés → szabálykapu → paper megbízás | igen: első fill (TSM, 144 db) |
-| 6.4 Review és eladás | napi pozíció-újraértékelés, determinisztikus SELL-méretezés | HOLD-ág igen; a SELL-ág még nem futott |
-| 6.5 Ütemezés és feedback | scheduler (09:00 / 15:30 / 21:00), lezárt pozíciók kiértékelése, tanulság | ütemezés igen; a tanulság-ág az első zárásnál fut |
-| 7. Megfigyelhetőség | dashboard, OTel-trace a Jaegerben (GenAI semconv) | igen |
-| 8. Összeállítás és tesztelés | e2e füsttesztek, szándékosan rossz esetek | nincs elkezdve |
-| 9. Átvilágítás | biztonsági és pénzügyi checklist, runbook, következő egységek | nincs elkezdve |
+Az Auxin egy **kizárólag agentekből álló, virtuális befektetési alapkezelő**, amely egy valódi alapkezelő szervezetét kívánja modellezni: szervezeti egységek, pozíciók, jelentési vonalak, felelősségi körök, írott befektetési szabályok, ellenőrzési pontok és döntési napló.
+- A szerepeket Claude-alapú (Opus) LLM-agentek és determinisztikus szolgáltatások töltik be.
+- Minden szerep külön Docker containerben fut.
+- Az agentek A2A 1.0 protokollon kommunikálnak.
+- Minden feladat egy közös Postgres task store-ba kerül, így a működés auditált.
+- A döntések közös tudásbázisba íródnak, a későbbi tanulási ciklusok lehetősége miatt.
+- A portfóliót jelenleg egyetlen Interactive Brokers **paper** számla reprezentálja.
 
 ## Felületek
 
@@ -41,8 +31,8 @@ Mindkét webes felület csak a `127.0.0.1`-re publikál, authentikáció nincs. 
 
 ```mermaid
 flowchart LR
-    subgraph host["Host (Mihály gépe, localhost)"]
-        user(["Mihály<br/>böngésző / make"])
+    subgraph host["Host (localhost)"]
+        user(["böngésző / make"])
     end
 
     subgraph ui["ui hálózat (127.0.0.1)"]
@@ -61,7 +51,7 @@ flowchart LR
         proxy["egress-proxy<br/>Squid"]
     end
 
-    subgraph ibkr["ibkr-backend hálózat (ibkrfacade repó)"]
+    subgraph ibkr["ibkr-backend hálózat (ibkrfacade)"]
         mcp["mcp-ibkr<br/>csak olvasás"]
         facade["ibkrfacade<br/>REST"]
         gateway["IB Gateway"]
@@ -294,18 +284,6 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 | Compliance | tervezett | szabálymegfelelés, audit |
 | Operations | tervezett | elszámolás, egyeztetés a brokerrel |
 | Reporting | részben (7.: dashboard, trace) | teljesítményjelentések; a dashboard és a Jaeger támogató szolgáltatás, nem szerep |
-
-### Szervezeti ábra
-
-```mermaid
-flowchart TB
-    human["Mihály (ember)<br/>jóváhagyja: szabály-, skill-, promptmódosítás"]
-    pm["Portfolio Manager (LLM)"]
-    r["Research (LLM)"]
-    e["Execution (determinisztikus)"]
-    human --> pm
-    pm --> r & e
-```
 
 ### Pozíciók
 
