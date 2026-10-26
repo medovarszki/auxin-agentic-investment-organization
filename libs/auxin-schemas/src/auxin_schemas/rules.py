@@ -1,5 +1,5 @@
 """Deterministic entry checks from org/rules/portfolio-rules.yaml (the parts a single proposal can decide)."""
-from auxin_schemas.domain import Holding, Proposal, ReviewResult
+from auxin_schemas.domain import Holding, Idea, Proposal, ReviewResult
 
 
 def check_entry(proposal: Proposal, rules: dict) -> list[str]:
@@ -20,6 +20,18 @@ class GateReject(Exception):
         super().__init__(f"{rule}: {reason}")
         self.rule = rule
         self.reason = reason
+
+
+def precheck_idea(idea: Idea, rules: dict, *, base_currency: str, held_conids: set[int]) -> None:
+    """The PM's cheap pre-gate on a Research idea, before any LLM call: raises GateReject for an idea that cannot be
+    bought anyway (asset class, base currency in the MVP, already held). An unresolved field is left to the PM."""
+    inst = idea.instrument
+    if inst.asset_class not in rules["universe"]["asset_classes"]:
+        raise GateReject("asset_class", f"asset class {inst.asset_class} not allowed")
+    if inst.currency and inst.currency != base_currency:
+        raise GateReject("currency", f"{inst.currency} != base currency {base_currency} (no FX conversion in the MVP)")
+    if inst.conid and inst.conid in held_conids:
+        raise GateReject("already_held", f"{inst.symbol} is already in the portfolio")
 
 
 # Conviction 1-5 -> target position size in % of NAV (decision 6.a).

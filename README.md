@@ -13,7 +13,7 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 
 | Egység | Állapot | Pozíciók |
 |---|---|---|
-| **Core** (befektetési egység) | működik (vétel, napi review és eladás, ütemezés, tanulság) | Research (Market & Sentiment és Research funkció), Portfolio Manager, Execution |
+| **Core** (befektetési egység) | működik (vétel, napi review és eladás, ütemezés, tanulság) | Research, Portfolio Manager, Execution |
 | Risk | tervezett | független kockázatkezelés, limitfelügyelet |
 | Compliance | tervezett | szabálymegfelelés, audit |
 | Operations | tervezett | elszámolás, egyeztetés a brokerrel |
@@ -28,15 +28,15 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
                       Portfolio Manager (LLM)
                 ┌──────────────┴──────────────┐
           Research (LLM)            Execution (determinisztikus)
-   Market & Sentiment + Research
+   ötletek, review, tanulság        megbízás
 ```
 
 ### Pozíciók
 
 | Pozíció | Típus | Állapot | Felelősség | Fogad | Küld |
 |---|---|---|---|---|---|
-| **Research** | LLM-agent, két funkcióval (2026-10-26 óta egy agent) | működik | **Market & Sentiment:** napi piaci összkép, sentiment, narratíva; legfeljebb 3 ötlet IBKR conidra oldva; kihagyja, ami a portfólióban van vagy 30 napon belül elutasított; az ötleteket ugyanabban a taszkban, egymás után, külön sessionben megtámadja. **Research:** ötlet-kritika és research (web, IBKR, tudásbázis); javaslat célárral, horizonttal, ≥3 kockázattal, ≥3 datált forrással, conviction 1–5; napi pozíció-újraértékelés (`position-review`: HOLD / REDUCE cél-súllyal / CLOSE); tanulság a lezárt pozíciókból (`lesson`, a runtime írja a `lessons` táblába) | `scan_trigger`, `idea` (kézi), `review_request`, `decision_outcome` | `proposal`, `idea_reject`, `review_result`, `lesson` |
-| **Portfolio Manager** | LLM-agent + determinisztikus szabálykapu | működik (6.3) | dönt a javaslatról (indoklással), és kockázati bucketbe (1–4) sorolja az instrumentumot (`risk-bucket`); a runtime ellenőrzi a szabályokat és méretez (az IBKR MCP-n át olvas; zárt piacnál az utolsó záróárral); napi review: a runtime a Research javaslatát LLM nélkül hajtja végre (REDUCE / CLOSE → SELL) | `proposal`, `review_trigger` | `order`, `proposal_reject`, `review_request`, `execute_pending` |
+| **Research** | LLM-agent (2026-10-26 óta egy agent, a korábbi Market & Sentimenttel) | működik | **Ötletek:** napi piaci összkép, sentiment, narratíva; legfeljebb 3 ötlet IBKR conidra oldva, a PM-nek; kihagyja, ami a portfólióban van vagy 30 napon belül elutasított; nem challenge-el, célárat nem ad. **Review:** napi pozíció-újraértékelés (`position-review`: HOLD / REDUCE cél-súllyal / CLOSE). **Tanulság** a lezárt pozíciókból (`lesson`, a runtime írja a `lessons` táblába) | `scan_trigger`, `review_request`, `decision_outcome` | `idea`, `review_result`, `lesson` |
+| **Portfolio Manager** | LLM-agent + determinisztikus elő- és szabálykapu | működik | a Research ötleteit a portfólió ismeretében validálja és challenge-eli (`idea-challenge`, 2026-10-26 óta): determinisztikus előszűrés LLM előtt (eszközosztály, bázisdeviza, már tartott), majd először a portfólió-illeszkedés (cash, ugyanaz a fogadás, kockázati bucket helye, emlékezet), csak utána a teljes kutatás (web, IBKR, tudásbázis); BUY saját javaslattal (célár, horizont, ≥3 kockázat, ≥3 datált forrás, conviction 1–5) vagy REJECT; kockázati bucketbe (1–4) sorol (`risk-bucket`); a runtime ellenőrzi a szabályokat és méretez (zárt piacnál az utolsó záróárral); napi review: a runtime a Research javaslatát LLM nélkül hajtja végre (REDUCE / CLOSE → SELL) | `idea`, `review_trigger` | `order`, `idea_reject`, `proposal_reject`, `review_request`, `execute_pending` |
 | **Execution** | determinisztikus service | működik (6.3) | ellenőrzés (paper számla, egyezés a PM döntésével a naplóban, SELL ≤ tartott mennyiség, friss ár), megbízás csak kereskedési időben (zárt piacnál függő, `make execute-pending` / 15:30), market / DAY, idempotens (`client_order_id = decision_id`); az egyetlen IBKR írási joggal | `order`, `execute_pending` | `fill`, `order_reject` |
 
 ### Támogató szolgáltatások (nem szerepek)
@@ -55,9 +55,9 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 
 **Vétel (naponta 09:00):**
 ```
-scheduler ─scan_trigger─► Research (scan ─ötletek─► kritika) ─proposal─► Portfolio Manager ─order─► Execution ─► IBKR
-                                     │ idea_reject                          │ proposal_reject        │ fill / order_reject
-                                     ▼                                      ▼                        ▼
+scheduler ─scan_trigger─► Research ─idea─► Portfolio Manager (előszűrés, challenge, döntés, szabálykapu) ─order─► Execution ─► IBKR
+                                                          │ idea_reject / proposal_reject                          │ fill / order_reject
+                                                          ▼                                                        ▼
                                                                  döntési napló (tudásbázis)
 ```
 
@@ -74,7 +74,7 @@ Minden nyitott pozíció minden nap teljes Research-újraértékelést kap (a fr
 ```
 scheduler (evaluate) ─► döntési napló fill-jei ─► lezárt pozíció? ─decision_outcome─► Research ─► tanulság (lessons)
 ```
-Lezárt egy pozíció, ha az eladások kiadják a vett mennyiséget; hozam = (bevétel − költség − jutalék) / költség, benchmark nélkül. A tanulságokat a Research a következő ötleteknél, javaslatoknál és review-knál a tudásbázisból olvassa. Szabály-, skill- vagy promptmódosítást csak Mihály hagy jóvá.
+Lezárt egy pozíció, ha az eladások kiadják a vett mennyiséget; hozam = (bevétel − költség − jutalék) / költség, benchmark nélkül. A tanulságokat a Research (ötletek, review-k) és a PM (döntések) a tudásbázisból olvassa. Szabály-, skill- vagy promptmódosítást csak Mihály hagy jóvá.
 
 ### Befektetési szabályok (röviden)
 
@@ -91,8 +91,8 @@ Lezárt egy pozíció, ha az eladások kiadják a vett mennyiséget; hozam = (be
 
 | Ki | Mit dobhat vissza | Mi alapján |
 |---|---|---|
-| Research (kritika) | a saját scanjének ötletét | gyenge tézis, hiányzó adat, < 15% hozampotenciál |
-| Portfolio Manager (LLM) | Research javaslatát | befektetési ítélet, indoklással; kockázati bucket |
+| PM előszűrés (determinisztikus, LLM előtt) | Research ötletét | eszközosztály, nem bázisdeviza, már tartott pozíció |
+| Portfolio Manager (LLM, challenge) | Research ötletét | portfólió-illeszkedés (cash, ugyanaz a fogadás, kockázati bucket helye), gyenge tézis, hiányzó adat, < 15% hozampotenciál; indoklással |
 | PM szabálykapu (determinisztikus) | a PM döntését | `portfolio-rules.yaml`: upside, pozíció-, szektor-, bucketlimit, szabad cash; bázisdeviza, már tartott pozíció |
 | Execution (determinisztikus) | megbízást | nem paper számla, eltér a PM döntésétől, SELL több a tartottnál, nincs friss ár |
 

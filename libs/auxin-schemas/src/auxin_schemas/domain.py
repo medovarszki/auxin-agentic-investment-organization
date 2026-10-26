@@ -93,32 +93,27 @@ class Proposal(ProposalBody):
     created_at: datetime = Field(default_factory=_now)
 
 
-class ResearchOutput(_Model):
-    """Research's verdict on an idea: a proposal, or a rejection with the reason."""
-
-    verdict: Literal["propose", "reject"]
-    reason: str = Field(min_length=1)  # the rejection reason, or the one-paragraph case for the proposal
-    proposal: ProposalBody | None = None
-
-    @model_validator(mode="after")
-    def _propose_needs_proposal(self) -> "ResearchOutput":
-        if self.verdict == "propose" and self.proposal is None:
-            raise ValueError("verdict 'propose' requires a proposal")
-        return self
-
-
 class IdeaReject(_Model):
     idea_id: UUID
     reason: str = Field(min_length=1)
 
 
 class PMDecision(_Model):
-    """The Portfolio Manager's investment judgement on a proposal; sizing and rule checks are the runtime's."""
+    """The Portfolio Manager's judgement on a Research idea (2026-10-26: the PM challenges the ideas): REJECT, or BUY
+    with the proposal it built (target price, horizon, risks, sources, conviction). Sizing and rule checks are the
+    runtime's."""
 
     decision: Literal["BUY", "REJECT"]
-    rationale: str = Field(min_length=1)
+    rationale: str = Field(min_length=1)  # the rejection reason, or the case for the BUY
     # Company risk class (skill risk-bucket, portfolio-rules.yaml risk_bucket): 1 = stable ... 4 = speculative
     risk_bucket: Literal[1, 2, 3, 4]
+    proposal: ProposalBody | None = None
+
+    @model_validator(mode="after")
+    def _buy_needs_proposal(self) -> "PMDecision":
+        if self.decision == "BUY" and self.proposal is None:
+            raise ValueError("decision 'BUY' requires a proposal")
+        return self
 
 
 class ProposalReject(_Model):

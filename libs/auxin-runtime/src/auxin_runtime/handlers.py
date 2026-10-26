@@ -11,7 +11,7 @@ from auxin_a2a.client import send, task_summary
 from auxin_a2a.server import Handler, Incoming, Rejected
 from auxin_schemas.domain import (
     DecisionOutcome, Holding, Idea, IdeaReject, Instrument, LessonDraft, MarketScanResult, Order, PMDecision,
-    Proposal, ProposalReject, ResearchOutput, ReviewRequest, ReviewResult,
+    Proposal, ProposalReject, ReviewRequest, ReviewResult,
 )
 from auxin_schemas.knowledge import DecisionKind, DecisionRecord, Lesson
 from auxin_schemas.metadata import MessageType
@@ -21,7 +21,7 @@ from auxin_runtime.descriptor import AgentDescriptor, build_options, require_sub
 from auxin_runtime.execution import execute, execute_pending
 from auxin_runtime.ibkr import read_tools
 from auxin_runtime.knowledge import get_decisions, record_decision, record_lesson
-from auxin_schemas.rules import GateReject, size_buy, size_sell
+from auxin_schemas.rules import GateReject, precheck_idea, size_buy, size_sell
 from auxin_runtime.runner import run_task
 
 log = logging.getLogger("auxin.runtime")
@@ -44,14 +44,12 @@ async def _llm(desc: AgentDescriptor, prompt: str, options, model, msg: Incoming
 
 
 def research(desc: AgentDescriptor, agent_dir: Path) -> Handler:
-    """One agent, two functions (2026-10-26). Market & Sentiment: scan_trigger -> market scan -> every idea recorded
-    in the decision log, then challenged one after the other in the same task. Research: idea -> proposal (to the
-    PM) or idea_reject; review_request: re-evaluate one open position -> HOLD / REDUCE / CLOSE back to the PM (the
-    task's artifact); decision_outcome: a closed position's result -> lesson (lessons table). The runtime writes
-    everything to the knowledge base."""
+    """Ideas and reviews; the PM challenges the ideas (2026-10-26). scan_trigger: market scan -> every idea recorded
+    in the decision log, then handed to the PM as its own task, one after the other; review_request: re-evaluate one
+    open position -> HOLD / REDUCE / CLOSE back to the PM (the task's artifact); decision_outcome: a closed position's
+    result -> lesson (lessons table). The runtime writes everything to the knowledge base."""
     require_subscription_auth()
     scan_options = build_options(desc, agent_dir, MarketScanResult.model_json_schema())
-    options = build_options(desc, agent_dir, ResearchOutput.model_json_schema())
     review_options = build_options(desc, agent_dir, ReviewResult.model_json_schema())
     lesson_options = build_options(desc, agent_dir, LessonDraft.model_json_schema())
 
@@ -77,33 +75,8 @@ def research(desc: AgentDescriptor, agent_dir: Path) -> Handler:
             snapshot=request.holding.model_dump(mode="json"), **_ctx(msg)))
         return {"review": out.model_dump(mode="json"), **usage}
 
-    async def challenge(idea: Idea, msg: Incoming) -> dict:
-        """idea -> proposal to the PM, or idea_reject (raises Rejected)."""
-        payload = idea.model_dump(mode="json")
-        out, usage = await _llm(desc, _prompt(agent_dir, "idea", payload), options, ResearchOutput, msg)
-        ref = {"conid": idea.instrument.conid, "symbol": idea.instrument.symbol, "idea_id": idea.idea_id, **_ctx(msg)}
-        if out.verdict == "reject":
-            reject = IdeaReject(idea_id=idea.idea_id, reason=out.reason)
-            await record_decision(DecisionRecord(
-                id=uuid.uuid5(idea.idea_id, "idea_reject"), kind=DecisionKind.IDEA_REJECT, agent=desc.name,
-                summary=out.reason, payload=reject.model_dump(mode="json") | usage, **ref))
-            raise Rejected(f"idea_reject {idea.instrument.symbol}: {out.reason}")
-
-        proposal = Proposal(idea_id=idea.idea_id, **out.proposal.model_dump())
-        await record_decision(DecisionRecord(
-            id=proposal.proposal_id, kind=DecisionKind.PROPOSAL, agent=desc.name, summary=proposal.thesis,
-            payload=proposal.model_dump(mode="json") | {"case": out.reason}, **ref))
-        task = await send(
-            sender=desc.name, recipient="portfolio-manager", type=MessageType.PROPOSAL,
-            subject=f"Proposal: BUY {proposal.instrument.symbol} (conviction {proposal.conviction})",
-            payload=proposal.model_dump(mode="json"), task_id=msg.task_id,
-            correlation_id=msg.meta.correlation_id, trace_id=msg.meta.trace_id, reference_task_ids=[msg.task_id],
-        )
-        return {"proposal": proposal.model_dump(mode="json"), **usage, "portfolio_manager": task_summary(task)}
-
     async def scan(msg: Incoming) -> dict:
-        """Market & Sentiment: the scan, every idea recorded before its challenge; a rejected or failed challenge
-        does not stop the others."""
+        """The scan; every idea recorded in the decision log before it goes to the PM."""
         trigger = msg.payload.get("trigger", "scan")
         prompt = (agent_dir / "prompts" / f"{trigger}.md").read_text()
         record = await run_task(desc.name, prompt, scan_options, MarketScanResult, task_id=msg.task_id)
@@ -111,31 +84,27 @@ def research(desc: AgentDescriptor, agent_dir: Path) -> Handler:
             raise RuntimeError(record.error)
         result = MarketScanResult.model_validate(record.output)
 
-        challenges = []
+        handoffs = []
         for idea in result.ideas:
             await record_decision(DecisionRecord(
                 id=idea.idea_id, kind=DecisionKind.IDEA, agent=desc.name, summary=idea.thesis,
                 conid=idea.instrument.conid, symbol=idea.instrument.symbol, idea_id=idea.idea_id,
                 payload=idea.model_dump(mode="json"), **_ctx(msg)))
-            item = {"symbol": idea.instrument.symbol}
-            try:
-                item |= {"verdict": "propose", **await challenge(idea, msg)}
-            except Rejected as exc:
-                item |= {"verdict": "reject", "reason": str(exc)}
-            except RuntimeError as exc:  # a failed challenge session; the scan goes on with the next idea
-                item |= {"verdict": "failed", "error": str(exc)}
-            challenges.append(item)
+            task = await send(
+                sender=desc.name, recipient="portfolio-manager", type=MessageType.IDEA,
+                subject=f"Idea: {idea.instrument.symbol}", payload=idea.model_dump(mode="json"), task_id=msg.task_id,
+                correlation_id=msg.meta.correlation_id, trace_id=msg.meta.trace_id, reference_task_ids=[msg.task_id],
+            )
+            handoffs.append({"symbol": idea.instrument.symbol, **task_summary(task)})
         return {"scan": record.output, "cost_usd": record.cost_usd, "num_turns": record.num_turns,
-                "challenges": challenges}
+                "handoffs": handoffs}
 
     async def handle(msg: Incoming) -> dict:
         if msg.meta.type == MessageType.SCAN_TRIGGER:
             return await scan(msg)
         if msg.meta.type == MessageType.REVIEW_REQUEST:
             return await review(msg)
-        if msg.meta.type == MessageType.DECISION_OUTCOME:
-            return await lesson(msg)
-        return await challenge(Idea.model_validate(msg.payload), msg)
+        return await lesson(msg)
 
     return handle
 
@@ -160,7 +129,8 @@ async def _portfolio(conid: int) -> dict:
 
 
 def portfolio_manager(desc: AgentDescriptor, agent_dir: Path) -> Handler:
-    """proposal: investment judgement (LLM) -> deterministic rule gate and sizing -> order to Execution."""
+    """idea (from Research): deterministic pre-gate -> challenge and investment judgement (LLM: REJECT, or BUY with
+    the proposal it built) -> deterministic rule gate and sizing -> order to Execution."""
     require_subscription_auth()
     options = build_options(desc, agent_dir, PMDecision.model_json_schema())
     rules = yaml.safe_load(Path(os.environ.get("AUXIN_RULES_FILE", agent_dir / "portfolio-rules.yaml")).read_text())
@@ -168,10 +138,34 @@ def portfolio_manager(desc: AgentDescriptor, agent_dir: Path) -> Handler:
     async def handle(msg: Incoming) -> dict:
         if msg.meta.type == MessageType.REVIEW_TRIGGER:
             return await daily_review(desc, msg)
-        proposal = Proposal.model_validate(msg.payload)
+        idea = Idea.model_validate(msg.payload)
+
+        async def reject_idea(reason: str, rule: str | None, payload: dict, snapshot: dict | None = None) -> None:
+            body = IdeaReject(idea_id=idea.idea_id, reason=reason)
+            await record_decision(DecisionRecord(
+                id=uuid.uuid5(idea.idea_id, "idea_reject"), kind=DecisionKind.IDEA_REJECT, agent=desc.name,
+                summary=reason, payload=body.model_dump(mode="json") | {"rule": rule} | payload, snapshot=snapshot,
+                conid=idea.instrument.conid, symbol=idea.instrument.symbol, idea_id=idea.idea_id, **_ctx(msg)))
+            raise Rejected(f"idea_reject {idea.instrument.symbol}{f' ({rule})' if rule else ''}: {reason}")
+
+        # Pre-gate on what the portfolio already says, before the (costly) challenge.
+        account, positions = await read_tools([("get_account_summary", {}), ("get_positions", {})])
+        try:
+            precheck_idea(idea, rules, base_currency=account["currency"],
+                          held_conids={p["conid"] for p in positions if float(p.get("quantity") or 0) != 0})
+        except GateReject as exc:
+            await reject_idea(f"pre-check: {exc.reason}", exc.rule, {}, {"account": account, "positions": positions})
+
+        out, usage = await _llm(desc, _prompt(agent_dir, "idea", msg.payload), options, PMDecision, msg)
+        if out.decision == "REJECT":
+            await reject_idea(out.rationale, None, {"risk_bucket": out.risk_bucket, **usage})
+
+        proposal = Proposal(idea_id=idea.idea_id, **out.proposal.model_dump())
         inst = proposal.instrument
-        out, usage = await _llm(desc, _prompt(agent_dir, "proposal", msg.payload), options, PMDecision, msg)
         ref = {"conid": inst.conid, "symbol": inst.symbol, "idea_id": proposal.idea_id, **_ctx(msg)}
+        await record_decision(DecisionRecord(
+            id=proposal.proposal_id, kind=DecisionKind.PROPOSAL, agent=desc.name, summary=proposal.thesis,
+            payload=proposal.model_dump(mode="json") | {"case": out.rationale, "risk_bucket": out.risk_bucket}, **ref))
 
         async def reject(reason: str, rule: str | None, snapshot: dict | None = None) -> None:
             body = ProposalReject(proposal_id=proposal.proposal_id, reason=reason, rule=rule)
@@ -180,9 +174,6 @@ def portfolio_manager(desc: AgentDescriptor, agent_dir: Path) -> Handler:
                 agent=desc.name, summary=reason, payload=body.model_dump(mode="json") | usage, snapshot=snapshot,
                 **ref))
             raise Rejected(f"proposal_reject {inst.symbol}{f' ({rule})' if rule else ''}: {reason}")
-
-        if out.decision == "REJECT":
-            await reject(out.rationale, None)
 
         snapshot = await _portfolio(inst.conid)
         buckets = await _risk_buckets([h["conid"] for h in snapshot["holdings"]])

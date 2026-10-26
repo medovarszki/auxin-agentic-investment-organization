@@ -37,8 +37,7 @@ def test_limits_and_isolation():
     assert options.permission_mode == "dontAsk"
     assert options.strict_mcp_config is True
     assert options.setting_sources == ["project"]
-    assert options.skills == ["market-scan", "narrative-and-sentiment", "idea-generation", "idea-challenge",
-                              "position-review", "lesson"]
+    assert options.skills == ["market-scan", "narrative-and-sentiment", "idea-generation", "position-review", "lesson"]
     assert options.max_turns == 80
     assert options.max_budget_usd is None
     assert options.output_format == {"type": "json_schema", "schema": SCHEMA}

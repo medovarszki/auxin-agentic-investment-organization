@@ -10,7 +10,7 @@ Every decision (BUY or REJECT) carries a `risk_bucket` from 1 to 4: how risky th
 ## Evidence
 - `mcp__ibkr__get_contract`: industry, stock vs ETF.
 - `mcp__ibkr__get_history` (1 Y, daily bars): rough annualised volatility and the largest drawdown.
-- The proposal (thesis, risks, sources) and web knowledge: market cap, profitability, stage, debt, binary events.
+- The idea (thesis, rationale, sources) and web knowledge: market cap, profitability, stage, debt, binary events.
 
 ## Buckets
 

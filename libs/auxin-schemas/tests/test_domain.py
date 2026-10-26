@@ -123,3 +123,29 @@ def test_risk_bucket_limit_caps_the_buy():
     assert exc.value.rule == "risk_bucket"
     with pytest.raises(ValidationError):
         PMDecision(decision="BUY", rationale="x", risk_bucket=5)
+
+
+def test_pm_buy_needs_a_proposal():
+    from auxin_schemas.domain import PMDecision, ProposalBody
+
+    with pytest.raises(ValidationError):
+        PMDecision(decision="BUY", rationale="x", risk_bucket=2)
+    PMDecision(decision="REJECT", rationale="bucket 2 is full", risk_bucket=2)
+    body = ProposalBody.model_validate(proposal().model_dump(exclude={"proposal_id", "idea_id", "action", "created_at"}))
+    assert PMDecision(decision="BUY", rationale="x", risk_bucket=2, proposal=body).proposal.target_price == 120.0
+
+
+def test_pm_precheck_rejects_before_the_llm():
+    from auxin_schemas.domain import Idea, InstrumentRef
+    from auxin_schemas.rules import GateReject, precheck_idea
+
+    def idea(**ref) -> Idea:
+        base = {"symbol": "ASML", "name": "ASML Holding", "asset_class": "stock"}
+        return Idea(instrument=InstrumentRef(**base | ref), thesis="t", rationale="r", sources=SOURCES[:1])
+
+    precheck_idea(idea(), RULES, base_currency="USD", held_conids={117902840})  # unresolved: left to the PM
+    precheck_idea(idea(conid=1, currency="USD"), RULES, base_currency="USD", held_conids={117902840})
+    for ref, rule in [({"currency": "EUR"}, "currency"), ({"conid": 117902840, "currency": "USD"}, "already_held")]:
+        with pytest.raises(GateReject) as exc:
+            precheck_idea(idea(**ref), RULES, base_currency="USD", held_conids={117902840})
+        assert exc.value.rule == rule
