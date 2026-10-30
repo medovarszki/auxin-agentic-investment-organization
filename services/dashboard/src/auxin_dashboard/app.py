@@ -5,6 +5,7 @@ Postgres in read-only sessions (`default_transaction_read_only=on`: any write fa
 """
 import json
 import os
+import uuid
 from pathlib import Path
 
 import uvicorn
@@ -51,7 +52,7 @@ def _task(row: dict, detail: bool = False) -> dict:
 
 @app.get("/")
 async def index() -> FileResponse:
-    return FileResponse(STATIC / "index.html")
+    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/config")
@@ -77,8 +78,13 @@ async def portfolio() -> dict:
         """SELECT DISTINCT ON (conid) conid, created_at, payload->>'recommendation' AS recommendation, summary
            FROM decisions WHERE kind = 'review' AND conid = ANY(:conids) ORDER BY conid, created_at DESC""",
         conids=[int(p["conid"]) for p in held])}
+    ideas = {r["conid"]: r["idea_id"] for r in await _rows(
+        """SELECT DISTINCT ON (conid) conid, idea_id FROM decisions
+           WHERE kind = 'fill' AND idea_id IS NOT NULL AND conid = ANY(:conids) ORDER BY conid, created_at DESC""",
+        conids=[int(p["conid"]) for p in held])}
     nav = float(account.get("net_liquidation") or 0)
     for p in held:
+        p["idea_id"] = ideas.get(int(p["conid"]))
         p["weight_pct"] = round(float(p.get("market_value") or 0) / nav * 100, 2) if nav else None
         p["last_review"] = reviews.get(int(p["conid"]))
     return {"error": None, "account": account, "positions": held}
@@ -127,6 +133,123 @@ async def decisions(kind: str | None = None, symbol: str | None = None, limit: i
            FROM decisions WHERE (CAST(:kind AS text) IS NULL OR kind = :kind)
              AND (CAST(:symbol AS text) IS NULL OR symbol = upper(:symbol))
            ORDER BY created_at DESC LIMIT :limit""", kind=kind, symbol=symbol, limit=limit)
+
+
+REJECT_KINDS = ("idea_reject", "proposal_reject", "order_reject")
+AGENT_ROLES = {"research": "Research", "market-sentiment": "Market & Sentiment", "portfolio-manager": "Portfolio Manager",
+               "execution": "Execution", "scheduler": "Kiértékelő"}
+
+
+def _role(row: dict) -> str:
+    """The organizational role behind a decision-log row; the rule gate runs inside the PM but is its own control."""
+    if row["kind"] in ("idea_reject", "proposal_reject") and (_json(row.get("payload")) or {}).get("rule"):
+        return "Szabálykapu"
+    return AGENT_ROLES.get(row["agent"], row["agent"])
+
+
+def _idea_status(kinds: set[str], reject: dict | None) -> tuple[str, str]:
+    """(category, label): category is accepted / rejected / open; the label names who decided."""
+    if reject:
+        return "rejected", f"Elutasítva – {_role(reject)}"
+    if "fill" in kinds:
+        return "accepted", "Teljesült"
+    if "order_submitted" in kinds:
+        return "accepted", "Leadva, teljesülésre vár"
+    if "order" in kinds:
+        return "accepted", "Elfogadva, megbízás függő"
+    if "proposal" in kinds:
+        return "open", "Javaslat, döntésre vár"
+    return "open", "Nincs döntés"
+
+
+@app.get("/api/ideas")
+async def ideas(limit: int = 500) -> list[dict]:
+    """One row per generated idea with where it ended: rejected (by whom), accepted (order, fill), or open."""
+    rows = await _rows(
+        """SELECT i.idea_id, i.created_at, i.agent, i.symbol, i.conid, i.summary AS thesis,
+                  i.payload->'instrument'->>'name' AS name, i.trace_id, e.kinds, e.last_event_at, e.reject, e.fill,
+                  e.order_summary
+           FROM decisions i LEFT JOIN LATERAL (
+             SELECT array_agg(DISTINCT kind) AS kinds, max(created_at) AS last_event_at,
+                    (array_agg(json_build_object('kind', kind, 'agent', agent, 'summary', summary, 'payload', payload)
+                       ORDER BY created_at DESC) FILTER (WHERE kind IN ('idea_reject', 'proposal_reject',
+                                                                        'order_reject')))[1] AS reject,
+                    (array_agg(payload ORDER BY created_at DESC) FILTER (WHERE kind = 'fill'))[1] AS fill,
+                    (array_agg(summary ORDER BY created_at DESC) FILTER (WHERE kind = 'order'))[1] AS order_summary
+             FROM decisions d WHERE d.idea_id = i.idea_id AND d.kind <> 'idea') e ON true
+           WHERE i.kind = 'idea' ORDER BY i.created_at DESC LIMIT :limit""", limit=limit)
+    outcomes = await _rows("SELECT conid, payload, created_at FROM decisions WHERE kind = 'decision_outcome'")
+    for r in rows:
+        r["role"] = AGENT_ROLES.get(r["agent"], r["agent"])
+        reject, fill = _json(r.pop("reject")), _json(r.pop("fill"))
+        r["kinds"] = r["kinds"] or []
+        r["category"], r["status"] = _idea_status(set(r["kinds"]), reject)
+        r["reason"] = reject and reject["summary"]
+        r["reject_kind"], r["reject_role"] = (reject["kind"], _role(reject)) if reject else (None, None)
+        r["fill"] = fill and {k: fill.get(k) for k in ("filled_quantity", "avg_price", "filled_at")}
+        r["outcome"] = None
+        if fill:  # the position this fill opened, once the evaluator has closed it
+            closed = [_json(o["payload"]) for o in outcomes
+                      if o["conid"] == r["conid"] and _json(o["payload"])["opened_at"] >= fill["filled_at"][:19]]
+            if closed:
+                r["outcome"] = min(closed, key=lambda o: o["opened_at"])
+                r["status"] = "Lezárva"
+    return rows
+
+
+@app.get("/api/ideas/{idea_id}")
+async def idea(idea_id: str) -> dict:
+    """An idea's full history: its own decision-log rows (Research -> PM -> rule gate -> Execution), then, once
+    filled, the position's follow-up (reviews, SELL orders and fills, the evaluator's outcome, lessons)."""
+    try:
+        uuid.UUID(idea_id)
+    except ValueError:
+        raise HTTPException(404, "unknown idea") from None
+    rows = await _rows("SELECT * FROM decisions WHERE idea_id = CAST(:id AS uuid) ORDER BY created_at", id=idea_id)
+    head = next((r for r in rows if r["kind"] == "idea"), None)
+    if not head:
+        raise HTTPException(404, "unknown idea")
+    for r in rows:
+        r["phase"] = "ötlet"
+    fill = next((r for r in reversed(rows) if r["kind"] == "fill"), None)
+    lessons = []
+    if fill:
+        after = await _rows("SELECT * FROM decisions WHERE conid = :conid AND idea_id IS NULL AND created_at > :t "
+                            "ORDER BY created_at", conid=fill["conid"], t=fill["created_at"])
+        close = next((i for i, r in enumerate(after) if r["kind"] == "decision_outcome"), None)
+        after = after if close is None else after[:close + 1]
+        for r in after:
+            r["phase"] = "utókövetés"
+        rows += after
+        outcome_ids = [r["decision_id"] for r in after if r["kind"] == "decision_outcome"]
+        if outcome_ids:
+            lessons = await _rows("SELECT created_at, agent, lesson, return_pct, decision_id FROM lessons "
+                                  "WHERE decision_id = ANY(:ids) ORDER BY created_at", ids=outcome_ids)
+    events = []
+    for r in rows:
+        r.pop("search", None)
+        r["payload"], r["snapshot"] = _json(r["payload"]), _json(r["snapshot"])
+        r["role"] = _role(r)
+        events.append(r)
+        sizing = r["payload"].get("sizing") if r["kind"] == "order" else None
+        if sizing and r["phase"] == "ötlet":  # the rule gate passed: its own control point, from the PM's sizing
+            events.append({"kind": "gate_pass", "role": "Szabálykapu", "agent": r["agent"], "phase": "ötlet",
+                           "created_at": r["created_at"], "symbol": r["symbol"], "trace_id": r["trace_id"],
+                           "summary": f"Átment: {sizing.get('quantity'):g} db (~{sizing.get('order_value')}), "
+                                      f"kötő limit: {sizing.get('binding_limit')}",
+                           "payload": sizing, "snapshot": None})
+    for lesson in lessons:
+        events.append({"kind": "lesson", "role": AGENT_ROLES.get(lesson["agent"], lesson["agent"]),
+                       "agent": lesson["agent"], "phase": "utókövetés", "created_at": lesson["created_at"],
+                       "symbol": head["symbol"], "trace_id": None, "summary": lesson["lesson"],
+                       "payload": {"return_pct": lesson["return_pct"]}, "snapshot": None})
+    reject = next((r for r in rows if r["kind"] in REJECT_KINDS and r["phase"] == "ötlet"), None)
+    category, status = _idea_status({r["kind"] for r in rows if r["phase"] == "ötlet"}, reject)
+    if any(r["kind"] == "decision_outcome" for r in rows):
+        status = "Lezárva"
+    traces = list(dict.fromkeys(r["trace_id"] for r in rows if r["trace_id"]))
+    return {"idea": head, "category": category, "status": status, "events": events, "traces": traces,
+            "jaeger_ui_url": JAEGER_UI_URL}
 
 
 @app.get("/api/tasks")

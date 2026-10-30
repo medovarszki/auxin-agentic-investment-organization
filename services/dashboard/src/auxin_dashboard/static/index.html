@@ -51,6 +51,34 @@
   .filters input, .filters select { font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px;
                                     background: var(--panel); color: var(--text); }
   a { color: var(--accent); }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { font: inherit; padding: 4px 10px; border: none; background: var(--panel); color: var(--muted); cursor: pointer; }
+  .seg button.on { background: var(--bg); color: var(--text); font-weight: 600; }
+  .card.click { cursor: pointer; } .card.on { border-color: var(--accent); }
+  .graph { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin: 12px 0;
+           overflow-x: auto; }
+  .graph svg { display: block; font: 12px system-ui, sans-serif; }
+  .graph text { fill: var(--text); } .graph text.muted { fill: var(--muted); }
+  .graph .lane { fill: var(--bg); } .graph .lane.alt { fill: var(--panel); }
+  .graph .node { cursor: pointer; } .graph .node rect, .graph .node circle { fill: var(--panel); stroke: var(--muted); stroke-width: 1.5; }
+  .graph .node.good rect, .graph .node.good circle { stroke: var(--good); fill: color-mix(in srgb, var(--good) 18%, var(--panel)); }
+  .graph .node.warn rect, .graph .node.warn circle { stroke: var(--warn); fill: color-mix(in srgb, var(--warn) 18%, var(--panel)); }
+  .graph .node.sel rect, .graph .node.sel circle { stroke-width: 3.5; }
+  .graph .node:hover rect, .graph .node:hover circle { stroke-width: 3; }
+  .graph .link { fill: none; stroke: var(--muted); opacity: .35; } .graph .link.good { stroke: var(--good); }
+  .graph .link.warn { stroke: var(--warn); } .graph .link:hover { opacity: .6; }
+  .graph .edge { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+  .graph .dim { opacity: .12; } .graph .node, .graph .edge { transition: opacity .3s; }
+  .graph-bar { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+  #ev-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 14px; margin-bottom: 12px; }
+  .role { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+  .role h2 { margin: 0 0 8px; }
+  .ev { border-top: 1px solid var(--line); padding: 10px 0; } .ev:first-of-type { border-top: none; }
+  .ev .meta { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+  .facts { display: flex; gap: 6px 14px; flex-wrap: wrap; margin: 6px 0; font-size: 13px; }
+  .facts span b { font-weight: 600; }
+  .lede { font-size: 15px; margin: 4px 0 8px; }
+  ul.src { margin: 4px 0; padding-left: 18px; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -58,6 +86,7 @@
   <h1>Auxin</h1>
   <nav id="tabs">
     <button data-tab="portfolio">Portfólió</button>
+    <button data-tab="ideas">Ötletek</button>
     <button data-tab="flows">Folyamatok</button>
     <button data-tab="decisions">Döntési napló</button>
     <button data-tab="tasks">Taszkok</button>
@@ -73,8 +102,159 @@ const num = (v, d = 2) => v == null || v === "" ? "" : Number(v).toLocaleString(
 const time = v => v ? new Date(v).toLocaleString("hu-HU", {dateStyle: "short", timeStyle: "medium"}) : "";
 const short = v => v ? esc(String(v).slice(0, 8)) : "";
 const stateCls = s => /FAILED/.test(s) ? "bad" : /REJECTED/.test(s) ? "warn" : /COMPLETED/.test(s) ? "good" : "muted";
-const kindCls = k => /reject/.test(k) ? "warn" : /fill|order_submitted/.test(k) ? "good" : "";
+const kindCls = k => /reject/.test(k) ? "warn" : /fill|order_submitted|gate_pass/.test(k) ? "good" : "";
 const signCls = v => v > 0 ? "good" : v < 0 ? "bad" : "";
+
+const catCls = c => c === "accepted" ? "good" : c === "rejected" ? "warn" : "";
+const KIND_LABEL = {idea: "ötlet", idea_reject: "ötlet elutasítva", proposal: "javaslat", proposal_reject: "javaslat elutasítva",
+  order: "megbízás (döntés)", gate_pass: "szabálykapu: átment", order_submitted: "leadva", order_reject: "megbízás elutasítva",
+  fill: "kötés", review: "review", decision_outcome: "kiértékelés", lesson: "tanulság"};
+
+function facts(e) {
+  const p = e.payload || {}, f = [];
+  const add = (k, v) => { if (v != null && v !== "") f.push(`<span>${esc(k)}: <b>${v}</b></span>`); };
+  if (e.kind === "proposal") {
+    add("piaci ár", num(p.market_price)); add("célár", num(p.target_price));
+    if (p.market_price && p.target_price) add("upside", num((p.target_price / p.market_price - 1) * 100) + "%");
+    add("horizont", p.horizon_weeks && `${p.horizon_weeks} hét`); add("conviction", p.conviction); add("risk bucket", p.risk_bucket);
+  } else if (e.kind === "order") {
+    add("oldal", esc(p.order?.side)); add("mennyiség", num(p.order?.quantity, 0)); add("érték", num(p.sizing?.order_value, 0));
+    add("risk bucket", p.risk_bucket);
+  } else if (e.kind === "gate_pass") {
+    add("NAV", num(p.nav, 0)); add("ár", num(p.price)); add("célsúly", p.target_weight_pct && `${p.target_weight_pct}%`);
+    add("upside", p.upside_pct && `${num(p.upside_pct)}%`); add("kötő limit", esc(p.binding_limit));
+    Object.entries(p.limits || {}).forEach(([k, v]) => add(`limit ${k}`, num(v, 0)));
+  } else if (e.kind === "fill") {
+    add("mennyiség", num(p.filled_quantity, 0)); add("átlagár", num(p.avg_price)); add("jutalék", num(p.commission));
+  } else if (e.kind === "review") {
+    add("javaslat", esc(p.recommendation)); add("célsúly", p.target_weight_pct != null && `${p.target_weight_pct}%`);
+  } else if (e.kind === "decision_outcome" || e.kind === "lesson") {
+    add("hozam", p.return_pct != null && `<span class="${signCls(p.return_pct)}">${num(p.return_pct)}%</span>`);
+    add("P&L", num(p.realized_pnl, 0)); add("napok", p.holding_days);
+  } else if (/reject/.test(e.kind)) {
+    add("szabály", esc(p.rule));
+  }
+  if (p.cost_usd != null) add("LLM költség", "$" + num(p.cost_usd));
+  return f.length ? `<div class="facts">${f.join("")}</div>` : "";
+}
+
+function evHtml(e) {
+  const p = e.payload || {};
+  const extra = [];
+  if (e.kind === "idea" && p.rationale) extra.push(`<p>${esc(p.rationale)}</p>`);
+  if (e.kind === "proposal") {
+    if (p.case) extra.push(`<p><b>PM indoklás:</b> ${esc(p.case)}</p>`);
+    if (p.risks?.length) extra.push(`<b>Kockázatok</b><ul class="src">${p.risks.map(r => `<li>${esc(r)}</li>`).join("")}</ul>`);
+    if (p.invalidation) extra.push(`<p><b>Invalidáció:</b> ${esc(p.invalidation)}</p>`);
+  }
+  if (p.sources?.length) extra.push(`<details><summary class="muted">Források (${p.sources.length})</summary><ul class="src">${p.sources.map(s =>
+    `<li><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a> <span class="muted">${esc(s.published_at)}</span></li>`).join("")}</ul></details>`);
+  return `<div class="ev"><div class="meta">${time(e.created_at)} · <span class="tag ${kindCls(e.kind)}">${esc(KIND_LABEL[e.kind] || e.kind)}</span>
+      ${e.phase === "utókövetés" ? '<span class="tag">utókövetés</span>' : ""} ${esc(e.agent)}
+      ${e.trace_id ? `· <a class="mono" href="#flow/${esc(e.trace_id)}">${short(e.trace_id)}</a>` : ""}</div>
+    <div>${esc(e.summary)}</div>${facts(e)}${extra.join("")}
+    <details><summary class="muted">JSON</summary><pre>${esc(JSON.stringify({payload: e.payload, snapshot: e.snapshot}, null, 2))}</pre></details></div>`;
+}
+
+const FUNNEL = [
+  ["gen", 0, "Generált ötlet", ""],
+  ["pre_rej", 1, "Előszűrés: elutasítva", "warn"], ["ch_rej", 1, "Challenge: elutasítva", "warn"],
+  ["none", 1, "Nincs döntés", ""], ["buy", 1, "Döntés: BUY", "good"],
+  ["gate_rej", 2, "Szabálykapu: elutasítva", "warn"], ["pm_rej", 2, "PM: elutasítva", "warn"],
+  ["wait", 2, "Döntésre vár", ""], ["gate_ok", 2, "Szabálykapu: átment", "good"],
+  ["ex_rej", 3, "Execution: elutasítva", "warn"], ["pending", 3, "Függő megbízás", ""], ["fill", 3, "Kötés (fill)", "good"],
+  ["open_pos", 4, "Nyitott pozíció", "good"], ["closed", 4, "Lezárva", ""],
+];
+const STAGES = ["Research", "Challenge, döntés", "Szabálykapu", "Execution", "Pozíció"];
+
+function ideaPath(r) {
+  const k = new Set(r.kinds || []), p = ["gen"];
+  if (r.reject_kind === "idea_reject") return [...p, r.reject_role === "Szabálykapu" ? "pre_rej" : "ch_rej"];
+  if (!k.has("proposal") && !k.has("order")) return [...p, "none"];
+  p.push("buy");
+  if (r.reject_kind === "proposal_reject") return [...p, r.reject_role === "Szabálykapu" ? "gate_rej" : "pm_rej"];
+  if (!k.has("order")) return [...p, "wait"];
+  p.push("gate_ok");
+  if (r.reject_kind === "order_reject") return [...p, "ex_rej"];
+  if (!k.has("fill")) return [...p, "pending"];
+  return [...p, "fill", r.outcome ? "closed" : "open_pos"];
+}
+
+function funnelSvg(all, active) {
+  const paths = all.map(ideaPath), cnt = {}, links = {};
+  paths.forEach(p => p.forEach((n, i) => {
+    cnt[n] = (cnt[n] || 0) + 1;
+    if (i) links[`${p[i - 1]}>${n}`] = (links[`${p[i - 1]}>${n}`] || 0) + 1;
+  }));
+  const nodes = FUNNEL.filter(([id]) => cnt[id]);
+  const colW = 210, nodeW = 172, gap = 14, top = 34, unit = Math.max(6, Math.min(30, 230 / Math.max(1, all.length)));
+  const pos = {};
+  let H = 0;
+  for (let st = 0; st < STAGES.length; st++) {
+    let y = top;
+    nodes.filter(n => n[1] === st).forEach(([id]) => {
+      const h = Math.max(26, cnt[id] * unit);
+      pos[id] = {x: 10 + st * colW, y, h, outY: y, inY: y};
+      y += h + gap;
+    });
+    H = Math.max(H, y);
+  }
+  const W = 10 + (STAGES.length - 1) * colW + nodeW + 10;
+  let svg = STAGES.map((s, st) => `<text class="muted" x="${10 + st * colW}" y="16">${esc(s)}</text>`).join("");
+  for (const [key, c] of Object.entries(links)) {
+    const [a, b] = key.split(">"), A = pos[a], B = pos[b], w = c * unit * (A.h / Math.max(26, cnt[a] * unit));
+    const tw = c * unit * (B.h / Math.max(26, cnt[b] * unit));
+    const y1 = A.outY + w / 2, y2 = B.inY + tw / 2;
+    A.outY += w; B.inY += tw;
+    const x1 = A.x + nodeW, x2 = B.x, mx = (x1 + x2) / 2;
+    const cls = FUNNEL.find(f => f[0] === b)[3];
+    svg += `<path class="link ${cls}" stroke-width="${Math.max(2, Math.min(w, tw))}" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}">
+      <title>${c} ötlet: ${esc(FUNNEL.find(f => f[0] === a)[2])} → ${esc(FUNNEL.find(f => f[0] === b)[2])}</title></path>`;
+  }
+  for (const [id, , label, cls] of nodes) {
+    const P = pos[id];
+    svg += `<g class="node ${cls}${active === id ? " sel" : ""}" data-node="${id}"><title>${esc(label)}: ${cnt[id]} ötlet – kattints a szűréshez</title>
+      <rect x="${P.x}" y="${P.y}" width="${nodeW}" height="${P.h}" rx="6"></rect>
+      <text x="${P.x + 8}" y="${P.y + Math.min(P.h / 2 + 4, 17)}"><tspan font-weight="600">${cnt[id]}</tspan> ${esc(label)}</text></g>`;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Ötletek útja">${svg}</svg>`;
+}
+
+const ROLE_ORDER = ["Market & Sentiment", "Research", "Portfolio Manager", "Szabálykapu", "Execution", "Kiértékelő"];
+
+function ideaGraphSvg(ev, sel, upto) {
+  const lanes = ROLE_ORDER.filter(r => ev.some(e => e.role === r));
+  const LW = 150, SX = 118, LH = 66, top = 26;
+  const W = LW + ev.length * SX + 10, H = top + lanes.length * LH + 8;
+  const X = i => LW + i * SX + SX / 2, Y = e => top + lanes.indexOf(e.role) * LH + LH / 2;
+  let svg = lanes.map((l, k) => `<rect class="lane${k % 2 ? " alt" : ""}" x="0" y="${top + k * LH}" width="${W}" height="${LH}"></rect>
+    <text x="10" y="${top + k * LH + LH / 2 + 4}" font-weight="600">${esc(l)}</text>`).join("");
+  const follow = ev.findIndex(e => e.phase === "utókövetés");
+  if (follow > 0) {
+    const x = LW + follow * SX;
+    svg += `<line x1="${x}" y1="${top - 6}" x2="${x}" y2="${H}" stroke="currentColor" class="muted" stroke-dasharray="4 4" opacity=".5"></line>
+      <text class="muted" x="${x + 6}" y="${top - 10}">utókövetés →</text>`;
+  }
+  svg += `<text class="muted" x="${LW + 4}" y="${top - 10}">ötlet útja →</text>`;
+  ev.forEach((e, i) => {
+    if (!i) return;
+    const x1 = X(i - 1), y1 = Y(ev[i - 1]), x2 = X(i), y2 = Y(e), mx = (x1 + x2) / 2;
+    svg += `<path class="edge${i > upto ? " dim" : ""}" marker-end="url(#arr)" d="M${x1 + 18},${y1} C${mx},${y1} ${mx},${y2} ${x2 - 20},${y2}"
+      ${e.phase !== ev[i - 1].phase ? 'stroke-dasharray="4 4"' : ""}></path>`;
+  });
+  ev.forEach((e, i) => {
+    const cls = /reject/.test(e.kind) ? "warn" : /fill|gate_pass|order_submitted/.test(e.kind) || (e.kind === "order") ? "good" : "";
+    const label = KIND_LABEL[e.kind] || e.kind;
+    svg += `<g class="node ${cls}${i === sel ? " sel" : ""}${i > upto ? " dim" : ""}" data-ev="${i}">
+      <title>${esc(time(e.created_at))} · ${esc(e.role)}: ${esc(e.summary.slice(0, 240))}</title>
+      <circle cx="${X(i)}" cy="${Y(e)}" r="16"></circle>
+      <text x="${X(i)}" y="${Y(e) + 4}" text-anchor="middle" font-weight="600">${i + 1}</text>
+      <text x="${X(i)}" y="${Y(e) + 30}" text-anchor="middle">${esc(label.length > 20 ? label.slice(0, 19) + "…" : label)}</text></g>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Az ötlet útja szerepkörök között">
+    <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="currentColor" class="muted" opacity=".6"></path></marker></defs>${svg}</svg>`;
+}
 
 async function api(path) {
   const r = await fetch(path);
@@ -106,7 +286,8 @@ const views = {
         `<div class="card"><div class="k">${k}</div><div class="v">${num(v, d ?? 0)} ${d === 0 ? "" : cur}</div></div>`).join("")}
     </div>`;
     html += table([
-      {h: "Symbol", f: r => `<b>${esc(r.symbol)}</b> <span class="muted mono">${esc(r.conid)}</span>`},
+      {h: "Symbol", f: r => `<b>${esc(r.symbol)}</b> <span class="muted mono">${esc(r.conid)}</span>` +
+        (r.idea_id ? ` <a href="#idea/${esc(r.idea_id)}">ötlet</a>` : "")},
       {h: "Mennyiség", num: 1, f: r => num(r.quantity, 0)},
       {h: "Átlagár", num: 1, f: r => num(r.avg_cost)},
       {h: "Piaci ár", num: 1, f: r => num(r.market_price)},
@@ -151,11 +332,110 @@ const views = {
       {h: "Mi", f: e => e.type === "task"
         ? `${esc(e.t.type)}: ${esc(e.t.subject)} <span class="${stateCls(e.t.state)}">${esc(e.t.state)}</span>` +
           (e.t.status_message ? `<div class="muted">${esc(e.t.status_message)}</div>` : "")
-        : `${e.d.symbol ? `<b>${esc(e.d.symbol)}</b> ` : ""}${esc(e.d.summary)}`},
+        : `${e.d.symbol ? `<b>${esc(e.d.symbol)}</b> ` : ""}${esc(e.d.summary)}` +
+          (e.d.idea_id ? ` <a href="#idea/${esc(e.d.idea_id)}">ötlet →</a>` : "")},
       {h: "Részletek", f: e => `<details><summary class="muted">JSON</summary><pre>${esc(JSON.stringify(
         e.type === "task" ? e.t.artifacts : {payload: e.d.payload, snapshot: e.d.snapshot}, null, 2))}</pre></details>`},
     ], events);
     $view.innerHTML = html;
+  },
+
+  async ideas() {
+    const params = new URLSearchParams(location.hash.split("?")[1] || "");
+    const cat = params.get("cat") || "", symbol = (params.get("symbol") || "").toUpperCase(), node = params.get("node") || "";
+    const all = await api("/api/ideas");
+    const count = c => all.filter(r => !c || r.category === c).length;
+    const rows = all.filter(r => (!cat || r.category === cat) && (!symbol || r.symbol === symbol)
+      && (!node || ideaPath(r).includes(node)));
+    const cats = [["", "Összes generált"], ["accepted", "Elfogadott"], ["rejected", "Elutasított"], ["open", "Folyamatban"]];
+    const link = (c, s, n) => {
+      const p = new URLSearchParams();
+      if (c) p.set("cat", c);
+      if (s) p.set("symbol", s);
+      if (n) p.set("node", n);
+      return `ideas${p.toString() ? "?" + p : ""}`;
+    };
+    const filled = all.filter(r => r.fill).length;
+    $view.innerHTML = `<div class="cards">${cats.map(([c, label]) =>
+        `<div class="card click${c === cat ? " on" : ""}" data-cat="${c}"><div class="k">${label}</div>
+         <div class="v">${count(c)}</div></div>`).join("")}
+        <div class="card"><div class="k">Ebből kötés (fill)</div><div class="v">${filled}</div></div></div>
+      <div class="filters">
+        <span class="seg">${cats.map(([c, label]) =>
+          `<button data-cat="${c}" class="${c === cat ? "on" : ""}">${label.replace("Összes generált", "Mind")}</button>`).join("")}</span>
+        <input id="f-symbol" placeholder="symbol" value="${esc(symbol)}" size="8">
+        ${node ? `<button class="small" id="f-node">× ${esc(FUNNEL.find(f => f[0] === node)?.[2] || node)}</button>` : ""}
+      </div>
+      <div class="graph"><div class="graph-bar muted">Az ötletek útja szerepkörökön át – kattints egy csomópontra a lista szűréséhez, sorra az ötlet útvonalához</div>
+        ${funnelSvg(all.filter(r => !symbol || r.symbol === symbol), node)}</div>` + table([
+      {h: "Generálva", f: r => time(r.created_at)},
+      {h: "Symbol", f: r => `<b>${esc(r.symbol)}</b><div class="muted">${esc(r.name)}</div>`},
+      {h: "Ötletgazda", f: r => esc(r.role)},
+      {h: "Tézis", f: r => esc(r.thesis.length > 180 ? r.thesis.slice(0, 180) + "…" : r.thesis)},
+      {h: "Státusz", f: r => `<span class="tag ${catCls(r.category)}">${esc(r.status)}</span>`},
+      {h: "Eredmény", f: r => r.outcome
+          ? `<span class="${signCls(r.outcome.return_pct)}">${num(r.outcome.return_pct)}%</span> <span class="muted">${esc(r.outcome.holding_days)} nap</span>`
+        : r.fill ? `${num(r.fill.filled_quantity, 0)} db @ ${num(r.fill.avg_price)}`
+        : r.reason ? `<span class="muted">${esc(r.reason.length > 120 ? r.reason.slice(0, 120) + "…" : r.reason)}</span>` : ""},
+      {h: "Utolsó lépés", f: r => time(r.last_event_at)},
+    ], rows, true);
+    bindRows(rows, r => go(`idea/${r.idea_id}`));
+    $view.querySelectorAll("[data-cat]").forEach(el => el.addEventListener("click", () => go(link(el.dataset.cat, symbol, node))));
+    document.getElementById("f-symbol").addEventListener("change", e => go(link(cat, e.target.value.trim().toUpperCase(), node)));
+    document.getElementById("f-node")?.addEventListener("click", () => go(link(cat, symbol)));
+    $view.querySelectorAll("[data-node]").forEach(el => el.addEventListener("click", () =>
+      go(link(cat, symbol, el.dataset.node === node ? "" : el.dataset.node))));
+  },
+
+  async idea(ideaId) {
+    const d = await api(`/api/ideas/${encodeURIComponent(ideaId)}`);
+    const i = d.idea, p = i.payload || {};
+    const events = d.events;
+    const roles = [...new Set(events.map(e => e.role))].sort((a, b) => ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b));
+    const ev = events.slice().sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    let html = `<p><a href="#ideas">← Ötletek</a> · ${d.traces.map(t =>
+        `trace <a class="mono" href="#flow/${esc(t)}">${short(t)}</a> (<a href="${esc(d.jaeger_ui_url)}/trace/${esc(t)}" target="_blank" rel="noopener">Jaeger</a>)`).join(" · ")}</p>
+      <h2 style="font-size:20px;margin:8px 0 2px">${esc(i.symbol)} <span class="muted" style="font-weight:400">${esc(p.instrument?.name || "")}</span>
+        <span class="tag ${catCls(d.category)}" style="font-size:13px">${esc(d.status)}</span></h2>
+      <p class="lede">${esc(i.summary)}</p>
+      <div class="graph"><div class="graph-bar"><button class="small" id="g-play">▶ Lejátszás</button>
+        <button class="small" id="g-prev">‹</button><button class="small" id="g-next">›</button>
+        <span class="muted">kattints egy lépésre a részletekért</span></div><div id="g-svg"></div></div>
+      <div id="ev-panel"></div>
+      <h2>Szerepkörök szerint</h2>`;
+    for (const role of roles) {
+      html += `<div class="role"><h2>${esc(role)}</h2>${events.filter(e => e.role === role).map(evHtml).join("")}</div>`;
+    }
+    html += `<h2>Idővonal</h2>` + table([
+      {h: "Idő", f: e => time(e.created_at)},
+      {h: "Szerep", f: e => esc(e.role)},
+      {h: "Esemény", f: e => `<span class="tag ${kindCls(e.kind)}">${esc(e.kind)}</span>${e.phase === "utókövetés" ? ' <span class="tag">utókövetés</span>' : ""}`},
+      {h: "Összefoglaló", f: e => esc(e.summary.length > 200 ? e.summary.slice(0, 200) + "…" : e.summary)},
+    ], ev);
+    $view.innerHTML = html;
+    let sel = Math.max(0, ev.map(e => e.phase).lastIndexOf("ötlet")), upto = ev.length - 1, timer = null;
+    const draw = () => {
+      document.getElementById("g-svg").innerHTML = ideaGraphSvg(ev, sel, upto);
+      document.getElementById("ev-panel").innerHTML = `<div class="ev"><div class="meta"><b>${sel + 1}. lépés · ${esc(ev[sel].role)}</b></div></div>` +
+        evHtml(ev[sel]);
+      document.querySelectorAll("#g-svg [data-ev]").forEach(g => g.addEventListener("click", () => {
+        stop(); sel = Number(g.dataset.ev); upto = ev.length - 1; draw();
+      }));
+    };
+    const stop = () => { clearInterval(timer); timer = null; document.getElementById("g-play").textContent = "▶ Lejátszás"; };
+    const step = d => { stop(); upto = ev.length - 1; sel = Math.min(ev.length - 1, Math.max(0, sel + d)); draw(); };
+    document.getElementById("g-prev").addEventListener("click", () => step(-1));
+    document.getElementById("g-next").addEventListener("click", () => step(1));
+    document.getElementById("g-play").addEventListener("click", () => {
+      if (timer) return stop();
+      sel = upto = 0; draw();
+      document.getElementById("g-play").textContent = "❚❚ Szünet";
+      timer = setInterval(() => {
+        if (!document.getElementById("g-svg") || upto >= ev.length - 1) return stop();
+        sel = ++upto; draw();
+      }, 1300);
+    });
+    draw();
   },
 
   async decisions() {
@@ -175,6 +455,7 @@ const views = {
       {h: "Agent", f: r => esc(r.agent)},
       {h: "Symbol", f: r => `<b>${esc(r.symbol)}</b>`},
       {h: "Összefoglaló", f: r => esc(r.summary)},
+      {h: "Ötlet", f: r => r.idea_id ? `<a href="#idea/${esc(r.idea_id)}">ötlet</a>` : ""},
       {h: "Trace", f: r => r.trace_id ? `<a class="mono" href="#flow/${esc(r.trace_id)}">${short(r.trace_id)}</a>` : ""},
     ], rows);
     const apply = () => {
@@ -225,7 +506,7 @@ async function render() {
   const [route, ...rest] = location.hash.slice(1).split("?")[0].split("/");
   const name = views[route] ? route : "portfolio";
   document.querySelectorAll("#tabs button").forEach(b =>
-    b.classList.toggle("on", b.dataset.tab === (name === "flow" ? "flows" : name)));
+    b.classList.toggle("on", b.dataset.tab === ({flow: "flows", idea: "ideas"}[name] || name)));
   $view.innerHTML = `<p class="muted">Betöltés…</p>`;
   try { await views[name](...rest); }
   catch (e) { $view.innerHTML = `<div class="err">${esc(e.message)}</div>`; }

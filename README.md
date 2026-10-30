@@ -12,7 +12,7 @@ Az Auxin egy **kizárólag agentekből álló, virtuális befektetési alapkezel
 
 | Felület | Cím | Mire való |
 |---|---|---|
-| **Dashboard** | <http://localhost:8080> | portfólió élőben (NAV, cash, pozíciók, súly, P&L, utolsó review), folyamatok trace szerint részletes idővonallal, döntési napló szűrővel, taszkok, lezárt pozíciók és tanulságok. Csak olvas |
+| **Dashboard** | <http://localhost:8080> | portfólió élőben (NAV, cash, pozíciók, súly, P&L, utolsó review), ötletmenedzser (minden generált ötlet, elfogadott / elutasított / folyamatban szűrővel, kattintható folyam-diagrammal az ötletek útjáról; ötletenként a teljes history szerepkör-sávos, lépésenként kattintható és lejátszható gráfon és szerepkörök szerint: Research → PM → szabálykapu → Execution → utókövetés → kiértékelő), folyamatok trace szerint részletes idővonallal, döntési napló szűrővel, taszkok, lezárt pozíciók és tanulságok. Csak olvas |
 | **Jaeger** | <http://localhost:16686> | trace-ek: A2A-hívások, `invoke_agent` (modell, tokenek, turnök), `execute_tool` (WebSearch, MCP), HTTP. A dashboard minden folyamatnál Jaeger-linket ad (ugyanaz a `trace_id`) |
 | CLI | `make tasks`, `make decisions`, `make logs` | a task tábla, a döntési napló és a JSON-naplók a terminálban |
 
