@@ -8,14 +8,17 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from claude_agent_sdk import (
-    AssistantMessage, ClaudeAgentOptions, ClaudeSDKError, ResultMessage, ToolResultBlock, ToolUseBlock, UserMessage,
-    query,
+    AssistantMessage, ClaudeAgentOptions, ClaudeSDKError, ResultMessage, TextBlock, ThinkingBlock, ToolResultBlock,
+    ToolUseBlock, UserMessage, query,
 )
 from opentelemetry.trace import Span, Status, StatusCode
 from pydantic import BaseModel, ValidationError
 
 from auxin_a2a.tracing import span, tracer
+from auxin_schemas.knowledge import Activity, ActivityKind
 from auxin_schemas.task import TASK_TIMEOUT, TaskState, transition
+
+from auxin_runtime.knowledge import record_activity
 
 log = logging.getLogger("auxin.runtime")
 
@@ -56,11 +59,77 @@ def _tool_spans(message, open_spans: dict[str, Span]) -> None:
                 tool_span.end()
 
 
-async def _result(prompt: str, options: ClaudeAgentOptions, query_fn: QueryFn) -> ResultMessage:
+TEXT_LIMIT = 1500
+
+
+def _short(value: Any, limit: int = TEXT_LIMIT) -> str:
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def _tool_input(name: str, args: dict) -> str:
+    """The argument that says what the tool is doing (the search query, the URL), else the arguments as JSON."""
+    for key in ("query", "url", "pattern", "command"):
+        if isinstance(args.get(key), str):
+            return args[key]
+    return _short(args, 500)
+
+
+def _tool_output(content: Any) -> str:
+    if isinstance(content, list):
+        content = " ".join(c.get("text", "") for c in content if isinstance(c, dict))
+    return _short(content or "", 600)
+
+
+class ActivityLog:
+    """The task's steps for the dashboard's live view, written to the knowledge service in the background."""
+
+    def __init__(self, agent: str, task_id: str, trace_id: str | None):
+        self.agent, self.task_id, self.trace_id = agent, task_id, trace_id
+        self.seq, self.tools, self.pending = 0, {}, set()
+
+    def add(self, steps: list[tuple[ActivityKind, str | None, str, bool]]) -> None:
+        records = []
+        for kind, name, text, is_error in steps:
+            records.append(Activity(agent=self.agent, task_id=self.task_id, trace_id=self.trace_id, seq=self.seq,
+                                    kind=kind, name=name, text=text, is_error=is_error))
+            self.seq += 1
+        if records:
+            write = asyncio.create_task(record_activity(records))
+            self.pending.add(write)
+            write.add_done_callback(self.pending.discard)
+
+    def message(self, message: Any) -> None:
+        steps = []
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock) and block.text.strip():
+                    steps.append((ActivityKind.TEXT, None, _short(block.text), False))
+                elif isinstance(block, ThinkingBlock) and block.thinking.strip():
+                    steps.append((ActivityKind.THINKING, None, _short(block.thinking), False))
+                elif isinstance(block, ToolUseBlock):
+                    self.tools[block.id] = block.name
+                    steps.append((ActivityKind.TOOL_USE, block.name, _tool_input(block.name, block.input), False))
+        elif isinstance(message, UserMessage) and isinstance(message.content, list):
+            for block in message.content:
+                if isinstance(block, ToolResultBlock):
+                    steps.append((ActivityKind.TOOL_RESULT, self.tools.get(block.tool_use_id),
+                                  _tool_output(block.content), bool(block.is_error)))
+        self.add(steps)
+
+    async def flush(self) -> None:
+        if self.pending:
+            await asyncio.gather(*self.pending, return_exceptions=True)
+
+
+async def _result(prompt: str, options: ClaudeAgentOptions, query_fn: QueryFn,
+                  activity: ActivityLog | None = None) -> ResultMessage:
     result, open_spans = None, {}
     try:
         async for message in query_fn(prompt=prompt, options=options):
             _tool_spans(message, open_spans)
+            if activity:
+                activity.message(message)
             if isinstance(message, ResultMessage):
                 result = message
     finally:
@@ -69,6 +138,15 @@ async def _result(prompt: str, options: ClaudeAgentOptions, query_fn: QueryFn) -
     if result is None:
         raise RuntimeError("session ended without a result message")
     return result
+
+
+def token_usage(usage: dict | None) -> dict:
+    """The task's tokens: input, output, cache read / creation and their total."""
+    usage = usage or {}
+    tokens = {"input": usage.get("input_tokens") or 0, "output": usage.get("output_tokens") or 0,
+              "cache_read": usage.get("cache_read_input_tokens") or 0,
+              "cache_creation": usage.get("cache_creation_input_tokens") or 0}
+    return tokens | {"total": sum(tokens.values())}
 
 
 def _usage_attributes(record: "TaskRecord") -> dict:
@@ -92,6 +170,7 @@ async def run_task(
     timeout: timedelta = TASK_TIMEOUT,
     query_fn: QueryFn = query,
     task_id: str | None = None,
+    trace_id: str | None = None,
 ) -> TaskRecord:
     record = TaskRecord(
         task_id=task_id or str(uuid.uuid4()),
@@ -106,9 +185,11 @@ async def run_task(
         _event(record, "task_submitted")
         record.state = transition(record.state, TaskState.WORKING)
         _event(record, "task_working")
+        activity = ActivityLog(agent, record.task_id, trace_id)
+        activity.add([(ActivityKind.TASK_STARTED, options.model, "", False)])
         try:
             result = await asyncio.wait_for(
-                _result(prompt, options, query_fn), timeout=timeout.total_seconds()
+                _result(prompt, options, query_fn, activity), timeout=timeout.total_seconds()
             )
             record.cost_usd = result.total_cost_usd
             record.num_turns = result.num_turns
@@ -126,6 +207,10 @@ async def run_task(
         agent_span.set_attributes(_usage_attributes(record))
         if record.error:
             agent_span.set_status(Status(StatusCode.ERROR, record.error[:200]))
+        activity.add([(ActivityKind.TASK_FINISHED, record.state.name, _short(json.dumps(
+            {"num_turns": record.num_turns, "tokens": token_usage(record.usage), "error": record.error})),
+            bool(record.error))])
+        await activity.flush()
     record.finished_at = datetime.now(timezone.utc)
     _event(record, "task_finished")
     return record

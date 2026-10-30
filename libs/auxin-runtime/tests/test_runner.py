@@ -71,3 +71,35 @@ def test_timeout_fails_without_retry():
 def test_no_result_message_fails():
     record = run(fake_query())
     assert record.state is TaskState.FAILED
+
+
+def test_activity_steps_are_recorded_in_order(monkeypatch):
+    from claude_agent_sdk import AssistantMessage, TextBlock, ToolResultBlock, ToolUseBlock, UserMessage
+
+    from auxin_runtime import runner
+
+    written = []
+
+    async def fake_record(steps):
+        written.extend(steps)
+
+    monkeypatch.setattr(runner, "record_activity", fake_record)
+    messages = [
+        AssistantMessage(content=[TextBlock(text="Checking prices."),
+                                  ToolUseBlock(id="t1", name="WebSearch", input={"query": "MSFT Azure"})], model="m"),
+        UserMessage(content=[ToolResultBlock(tool_use_id="t1", content="Azure +48%", is_error=False)]),
+        result(),
+    ]
+    record = asyncio.run(run_task("research", "scan", ClaudeAgentOptions(model="opus"), Out, task_id="task-1",
+                                  trace_id="a" * 32, query_fn=fake_query(*messages)))
+    assert record.state is TaskState.COMPLETED
+    steps = [(s.seq, s.kind.value, s.name, s.text) for s in sorted(written, key=lambda s: s.seq)]
+    assert steps == [
+        (0, "task_started", "opus", ""),
+        (1, "text", None, "Checking prices."),
+        (2, "tool_use", "WebSearch", "MSFT Azure"),
+        (3, "tool_result", "WebSearch", "Azure +48%"),
+        (4, "task_finished", "COMPLETED", '{"num_turns": 3, "tokens": {"input": 100, "output": 0, "cache_read": 0, '
+                                          '"cache_creation": 0, "total": 100}, "error": null}'),
+    ]
+    assert {(s.task_id, s.trace_id, s.agent) for s in written} == {("task-1", "a" * 32, "research")}

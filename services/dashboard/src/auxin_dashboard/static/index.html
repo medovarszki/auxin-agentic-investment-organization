@@ -23,7 +23,23 @@
   nav button { border: 1px solid transparent; background: none; color: var(--muted); padding: 6px 10px;
                border-radius: 6px; cursor: pointer; font: inherit; }
   nav button.on { color: var(--text); border-color: var(--line); background: var(--bg); }
-  #refresh { margin-left: auto; }
+  #scan { margin-left: auto; }
+  button.primary { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .agents { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 12px 0; }
+  .agent { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .agent.working { border-color: var(--accent); }
+  .agent .now { margin-top: 6px; font-size: 13px; word-break: break-word; max-height: 4.4em; overflow: hidden; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; }
+  .working .dot { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent);
+          border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .feed { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; max-height: 560px; overflow-y: auto; }
+  .feed .row { display: grid; grid-template-columns: 70px 130px 1fr; gap: 8px; padding: 6px 10px;
+               border-bottom: 1px solid var(--line); font-size: 13px; }
+  .feed .row .txt { word-break: break-word; white-space: pre-wrap; }
+  .feed .row.tool_result .txt, .feed .row.thinking .txt { color: var(--muted); }
   button.small { font: inherit; padding: 4px 10px; border: 1px solid var(--line); background: var(--panel);
                  color: var(--text); border-radius: 6px; cursor: pointer; }
   main { padding: 16px; max-width: 1400px; margin: 0 auto; }
@@ -92,6 +108,7 @@
     <button data-tab="tasks">Taszkok</button>
     <button data-tab="outcomes">Eredmények</button>
   </nav>
+  <button id="scan" class="small primary">▶ Ötletgenerálás</button>
   <button id="refresh" class="small">Frissítés</button>
 </header>
 <main id="view"></main>
@@ -134,7 +151,7 @@ function facts(e) {
   } else if (/reject/.test(e.kind)) {
     add("szabály", esc(p.rule));
   }
-  if (p.cost_usd != null) add("LLM költség", "$" + num(p.cost_usd));
+  if (p.tokens) add("LLM", `${p.num_turns ?? "?"} turn · ${tokens(p.tokens)}`);
   return f.length ? `<div class="facts">${f.join("")}</div>` : "";
 }
 
@@ -259,6 +276,43 @@ function ideaGraphSvg(ev, sel, upto) {
 const jaegerLink = url => url ? `<a href="${esc(url)}" target="_blank" rel="noopener">Jaeger</a>`
   : `<span class="muted" title="A Jaeger in-memory tárol: újraindítás után a régebbi trace-ek elvesznek">Jaeger: nem elérhető</span>`;
 
+const kTok = n => n >= 1000 ? `${(n / 1000).toLocaleString("hu-HU", {maximumFractionDigits: 1})}k` : String(n ?? 0);
+const tokens = t => t ? `<span title="input ${kTok(t.input)} · output ${kTok(t.output)} · cache read ${kTok(t.cache_read)} · cache write ${kTok(t.cache_creation)}">${kTok(t.total)} token</span>` : "";
+const sumTokens = list => list.reduce((s, t) => {
+  if (!t) return s;
+  for (const k of ["input", "output", "cache_read", "cache_creation", "total"]) s[k] = (s[k] || 0) + (t[k] || 0);
+  return s;
+}, null);
+const ACT = {task_started: "▶ indul", text: "💬", thinking: "💭", tool_use: "🔧", tool_result: "↳", task_finished: "■ kész"};
+
+function actLine(a) {
+  if (a.kind === "tool_use") return `<b>${esc(a.name)}</b> ${esc(a.text)}`;
+  if (a.kind === "tool_result") return `${a.is_error ? '<span class="bad">hiba</span> ' : ""}${esc(a.text)}`;
+  if (a.kind === "task_started") return `LLM-taszk indul <span class="muted">(${esc(a.name || "")})</span>`;
+  if (a.kind === "task_finished") {
+    let info = {};
+    try { info = JSON.parse(a.text); } catch { info = {}; }
+    return `LLM-taszk vége: <b>${esc(a.name)}</b> <span class="muted">${info.num_turns != null ? `${info.num_turns} turn · ` : ""}${tokens(info.tokens)}</span>` +
+      (info.error ? ` <span class="bad">${esc(info.error)}</span>` : "");
+  }
+  return esc(a.text);
+}
+
+async function startScan() {
+  if (!confirm("Indítsak most egy ötletgenerálást (scan) a PAPER számlán?\n\n" +
+      "Végigmegy a teljes vételi folyamaton: Research → Portfolio Manager → szabálykapu → Execution. " +
+      "Ebből valódi paper megbízás és kötés lehet; zárt piacnál a megbízás függő marad. " +
+      "Egy scan néhány perc, LLM-költsége nagyjából $1–3.")) return;
+  const r = await fetch("/api/scan", {method: "POST"});
+  const body = await r.json().catch(() => ({}));
+  if (r.ok) return go(`live/${body.trace_id}`);
+  const d = body.detail || {};
+  if (r.status === 409 && d.trace_id) { alert("Már fut egy scan, megnyitom."); return go(`live/${d.trace_id}`); }
+  alert(`Nem indult el: ${d.message || d || r.status}`);
+}
+
+let liveTimer = null;
+
 async function api(path) {
   const r = await fetch(path);
   if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
@@ -317,7 +371,7 @@ const views = {
       {h: "Napló-események", f: r => (r.kinds || []).map(k => `<span class="tag ${kindCls(k)}">${esc(k)}</span>`).join("")},
       {h: "Trace", f: r => `<span class="mono">${short(r.trace_id)}</span>`},
     ], rows, true);
-    bindRows(rows, r => go(`flow/${r.trace_id}`));
+    bindRows(rows, r => go(`${r.running ? "live" : "flow"}/${r.trace_id}`));
   },
 
   async flow(traceId) {
@@ -327,13 +381,14 @@ const views = {
       ...f.decisions.map(d => ({at: d.created_at, type: "decision", d})),
     ].sort((x, y) => new Date(x.at) - new Date(y.at));
     let html = `<p><a href="#flows">← Folyamatok</a> · trace <span class="mono">${esc(f.trace_id)}</span> ·
-      ${jaegerLink(f.jaeger_url)}</p>`;
+      ${jaegerLink(f.jaeger_url)} · <a href="#live/${esc(f.trace_id)}">élő nézet</a></p>`;
     html += table([
       {h: "Idő", f: e => time(e.at)},
       {h: "", f: e => e.type === "task" ? `<span class="tag">taszk</span>` : `<span class="tag ${kindCls(e.d.kind)}">${esc(e.d.kind)}</span>`},
       {h: "Ki", f: e => e.type === "task" ? `${esc(e.t.sender)} → <b>${esc(e.t.agent)}</b>` : esc(e.d.agent)},
       {h: "Mi", f: e => e.type === "task"
         ? `${esc(e.t.type)}: ${esc(e.t.subject)} <span class="${stateCls(e.t.state)}">${esc(e.t.state)}</span>` +
+          (e.t.tokens ? ` <span class="muted">· ${tokens(e.t.tokens)}</span>` : "") +
           (e.t.status_message ? `<div class="muted">${esc(e.t.status_message)}</div>` : "")
         : `${e.d.symbol ? `<b>${esc(e.d.symbol)}</b> ` : ""}${esc(e.d.summary)}` +
           (e.d.idea_id ? ` <a href="#idea/${esc(e.d.idea_id)}">ötlet →</a>` : "")},
@@ -441,6 +496,76 @@ const views = {
     draw();
   },
 
+  async live(traceId) {
+    const roles = ["Research", "Portfolio Manager", "Execution"];
+    let filter = "", lastKey = "", sel = null;
+    $view.innerHTML = `<p><a href="#flows">← Folyamatok</a> · élő folyamat · trace <span class="mono">${short(traceId)}</span>
+        · <a href="#flow/${esc(traceId)}">részletes idővonal</a> <span id="lv-state"></span></p>
+      <div class="agents" id="lv-agents"></div>
+      <div class="graph"><div class="graph-bar muted">A folyamat döntései szerepkörönként – kattints egy lépésre</div><div id="g-svg"><p class="muted">Még nincs döntés.</p></div></div>
+      <div id="ev-panel" hidden></div>
+      <div class="filters"><span class="seg" id="lv-filter">${["", ...roles].map(r =>
+        `<button data-r="${r}" class="${r ? "" : "on"}">${r || "Minden agent"}</button>`).join("")}</span>
+        <span class="muted" id="lv-count"></span></div>
+      <div class="feed" id="lv-feed"></div>`;
+    document.querySelectorAll("#lv-filter button").forEach(b => b.addEventListener("click", () => {
+      filter = b.dataset.r; lastKey = "";
+      document.querySelectorAll("#lv-filter button").forEach(x => x.classList.toggle("on", x === b));
+      tick();
+    }));
+    const agentRole = {"research": "Research", "portfolio-manager": "Portfolio Manager", "execution": "Execution"};
+    async function tick() {
+      if (!document.getElementById("lv-feed")) return;
+      let d;
+      try { d = await api(`/api/live/${encodeURIComponent(traceId)}`); }
+      catch (e) { document.getElementById("lv-state").innerHTML = `<span class="bad">${esc(e.message)}</span>`; return; }
+      const ideas = d.decisions.filter(x => x.kind === "idea");
+      document.getElementById("lv-state").innerHTML = (d.running ? `· <span class="good"><span class="dot" style="background:var(--good)"></span>fut</span>`
+        : `· <span class="muted">befejeződött</span>`) +
+        (ideas.length ? ` · ötletek: ${ideas.map(x => `<a href="#idea/${esc(x.idea_id)}">${esc(x.symbol)}</a>`).join(", ")}` : "");
+      document.getElementById("lv-agents").innerHTML = roles.map(role => {
+        const agent = Object.keys(agentRole).find(k => agentRole[k] === role);
+        const ts = d.tasks.filter(t => t.agent === agent), acts = d.activity.filter(a => a.agent === agent);
+        const working = ts.some(t => ["SUBMITTED", "WORKING"].includes(t.state));
+        const last = acts[acts.length - 1], lastTask = ts[ts.length - 1];
+        const state = working ? "dolgozik" : ts.length ? `kész (${ts.length} taszk)` : "vár";
+        return `<div class="agent ${working ? "working" : ""}"><b><span class="dot"></span>${esc(role)}</b>
+          <span class="muted"> · ${state}${acts.length ? ` · ${acts.length} lépés` : ""}${sumTokens(ts.map(t => t.tokens)) ? ` · ${tokens(sumTokens(ts.map(t => t.tokens)))}` : ""}</span>
+          <div class="muted" style="font-size:12px">${lastTask ? `${esc(lastTask.type)}: ${esc(lastTask.subject)}` : ""}</div>
+          <div class="now">${working ? '<span class="spin"></span>' : ""}${last ? `${ACT[last.kind] || ""} ${actLine(last)}`
+            : working ? '<span class="muted">indul…</span>' : '<span class="muted">–</span>'}</div></div>`;
+      }).join("");
+      const key = `${d.activity.length}/${d.decisions.length}/${filter}/${d.running}`;
+      if (key !== lastKey) {
+        lastKey = key;
+        const ev = d.decisions;
+        if (ev.length) {
+          document.getElementById("g-svg").innerHTML = ideaGraphSvg(ev, sel ?? -1, ev.length - 1);
+          document.querySelectorAll("#g-svg [data-ev]").forEach(g => g.addEventListener("click", () => {
+            sel = Number(g.dataset.ev); lastKey = "";
+            const panel = document.getElementById("ev-panel");
+            panel.hidden = false;
+            panel.innerHTML = evHtml(ev[sel]) + (ev[sel].idea_id ? `<p><a href="#idea/${esc(ev[sel].idea_id)}">Az ötlet teljes útja →</a></p>` : "");
+            tick();
+          }));
+        }
+        const rows = d.activity.filter(a => !filter || agentRole[a.agent] === filter).slice().reverse();
+        const working = new Set(d.tasks.filter(t => ["SUBMITTED", "WORKING"].includes(t.state)).map(t => t.agent));
+        const current = new Set(rows.filter(a => working.has(a.agent) && a.kind !== "task_finished")
+          .map(a => a.agent).map(agent => rows.find(a => a.agent === agent)));
+        document.getElementById("lv-count").textContent = `${rows.length} lépés`;
+        document.getElementById("lv-feed").innerHTML = rows.map(a => `<div class="row ${esc(a.kind)}">
+            <span class="muted">${new Date(a.created_at).toLocaleTimeString("hu-HU")}</span>
+            <span><span class="tag">${esc(agentRole[a.agent] || a.agent)}</span> ${ACT[a.kind] || ""}</span>
+            <span class="txt">${current.has(a) ? '<span class="spin"></span>' : ""}${actLine(a)}</span></div>`).join("") || `<p class="muted" style="padding:10px">${d.running ? "Még nincs lépés – az agent indul…"
+          : "Ehhez a folyamathoz nincs rögzített LLM-lépés (a lépésnaplózás 2026-10-30 óta működik)."}</p>`;
+      }
+      clearTimeout(liveTimer);
+      if (d.running || !d.tasks.length) liveTimer = setTimeout(tick, 2000);
+    }
+    await tick();
+  },
+
   async decisions() {
     const params = new URLSearchParams(location.hash.split("?")[1] || "");
     const kind = params.get("kind") || "", symbol = params.get("symbol") || "";
@@ -481,6 +606,7 @@ const views = {
       {h: "Típus", f: r => esc(r.type)},
       {h: "Tárgy", f: r => esc(r.subject)},
       {h: "Állapot", f: r => `<span class="${stateCls(r.state)}">${esc(r.state)}</span>`},
+      {h: "Token", num: 1, f: r => tokens(r.tokens)},
       {h: "Trace", f: r => r.trace_id ? `<a class="mono" href="#flow/${esc(r.trace_id)}">${short(r.trace_id)}</a>` : ""},
     ], rows);
   },
@@ -509,7 +635,8 @@ async function render() {
   const [route, ...rest] = location.hash.slice(1).split("?")[0].split("/");
   const name = views[route] ? route : "portfolio";
   document.querySelectorAll("#tabs button").forEach(b =>
-    b.classList.toggle("on", b.dataset.tab === ({flow: "flows", idea: "ideas"}[name] || name)));
+    b.classList.toggle("on", b.dataset.tab === ({flow: "flows", live: "flows", idea: "ideas"}[name] || name)));
+  clearTimeout(liveTimer);
   $view.innerHTML = `<p class="muted">Betöltés…</p>`;
   try { await views[name](...rest); }
   catch (e) { $view.innerHTML = `<div class="err">${esc(e.message)}</div>`; }
@@ -517,6 +644,7 @@ async function render() {
 
 document.querySelectorAll("#tabs button").forEach(b => b.addEventListener("click", () => go(b.dataset.tab)));
 document.getElementById("refresh").addEventListener("click", render);
+document.getElementById("scan").addEventListener("click", startScan);
 window.addEventListener("hashchange", render);
 render();
 </script>

@@ -33,7 +33,7 @@ def test_wildcard_grants_whole_server():
 
 def test_limits_and_isolation():
     options = build_options(RESEARCH, Path("/agent"), SCHEMA, env={})
-    assert options.model == "claude-opus-5-5"
+    assert options.model == "claude-sonnet-5-5"
     assert options.permission_mode == "dontAsk"
     assert options.strict_mcp_config is True
     assert options.setting_sources == ["project"]

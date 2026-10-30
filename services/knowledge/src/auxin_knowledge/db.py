@@ -6,7 +6,7 @@ Full-text search: every table has a generated `search` tsvector column with a GI
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Computed, DateTime, Float, Index, Text, func
+from sqlalchemy import BigInteger, Boolean, Computed, DateTime, Float, Index, Integer, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR, UUID
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -82,6 +82,23 @@ class LessonRow(Base):
     search: Mapped[str] = mapped_column(TSVECTOR, _tsvector("symbol", "lesson"))
 
     __table_args__ = (Index("ix_lessons_search", "search", postgresql_using="gin"),)
+
+
+class ActivityRow(Base):
+    """LLM task steps as they happen (tool calls, results, text): the dashboard's live view. Operational, not memory."""
+
+    __tablename__ = "agent_activity"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID, primary_key=True)
+    agent: Mapped[str] = mapped_column(Text)
+    task_id: Mapped[str | None] = mapped_column(Text, index=True)
+    trace_id: Mapped[str | None] = mapped_column(Text, index=True)
+    seq: Mapped[int] = mapped_column(Integer)
+    kind: Mapped[str] = mapped_column(Text)
+    name: Mapped[str | None] = mapped_column(Text)
+    text: Mapped[str] = mapped_column(Text)
+    is_error: Mapped[bool] = mapped_column(Boolean)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
 
 
 def make_engine() -> AsyncEngine:

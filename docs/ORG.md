@@ -14,7 +14,7 @@
 
 Befektetési univerzum: **globális részvények és ETF-ek**, long only (nincs short). Horizont: néhány héttől kb. egy évig. A portfólió egyetlen IBKR számla (alapértelmezés: paper), amelyet az [ibkrfacade](https://github.com/medovarszki/ibkrfacade) ér el.
 
-Minden agent modellje **Opus 5.5** (a pontos modell-ID a 2. fázisban rögzül).
+Modellek: Research **Sonnet 5.5** (`claude-sonnet-5-5`, Mihály, 2026-10-30), Portfolio Manager **Opus 5.5** (`claude-opus-5-5`); az Execution determinisztikus, LLM nélkül.
 
 ## Szerepek
 

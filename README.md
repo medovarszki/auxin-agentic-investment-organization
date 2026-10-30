@@ -1,7 +1,7 @@
 # Auxin – agentic investment organization
 
 Az Auxin egy **kizárólag agentekből álló, virtuális befektetési alapkezelő**, amely egy valódi alapkezelő szervezetét kívánja modellezni: szervezeti egységek, pozíciók, jelentési vonalak, felelősségi körök, írott befektetési szabályok, ellenőrzési pontok és döntési napló.
-- A szerepeket Claude-alapú (Opus) LLM-agentek és determinisztikus szolgáltatások töltik be.
+- A szerepeket Claude-alapú LLM-agentek (Research: Sonnet 5.5, Portfolio Manager: Opus 5.5) és determinisztikus szolgáltatások töltik be.
 - Minden szerep külön Docker containerben fut.
 - Az agentek A2A 1.0 protokollon kommunikálnak.
 - Minden feladat egy közös Postgres task store-ba kerül, így a működés auditált.
@@ -12,7 +12,7 @@ Az Auxin egy **kizárólag agentekből álló, virtuális befektetési alapkezel
 
 | Felület | Cím | Mire való |
 |---|---|---|
-| **Dashboard** | <http://localhost:8080> | portfólió élőben (NAV, cash, pozíciók, súly, P&L, utolsó review), ötletmenedzser (minden generált ötlet, elfogadott / elutasított / folyamatban szűrővel, kattintható folyam-diagrammal az ötletek útjáról; ötletenként a teljes history szerepkör-sávos, lépésenként kattintható és lejátszható gráfon és szerepkörök szerint: Research → PM → szabálykapu → Execution → utókövetés → kiértékelő), folyamatok trace szerint részletes idővonallal, döntési napló szűrővel, taszkok, lezárt pozíciók és tanulságok. Csak olvas |
+| **Dashboard** | <http://localhost:8080> | portfólió élőben (NAV, cash, pozíciók, súly, P&L, utolsó review); **▶ Ötletgenerálás** gomb (egy `scan_trigger` a Researchnek, csak PAPER számlán, egyszerre egy) és **élő nézet**: agentenként mit csinál éppen az LLM (keresések, tool-hívások és eredményeik, köztes szöveg, az `agent_activity` táblából), a döntések szerepkör-sávos gráfon, ahogy születnek; ötletmenedzser (minden generált ötlet, elfogadott / elutasított / folyamatban szűrővel, kattintható folyam-diagrammal; ötletenként a teljes history lejátszható gráfon és szerepkörök szerint); folyamatok trace szerint, döntési napló szűrővel, taszkok, lezárt pozíciók és tanulságok. Egyetlen írási művelete a scan indítása, a DB-t csak olvassa |
 | **Jaeger** | <http://localhost:16686> | trace-ek: A2A-hívások, `invoke_agent` (modell, tokenek, turnök), `execute_tool` (WebSearch, MCP), HTTP. A dashboard minden folyamatnál Jaeger-linket ad (ugyanaz a `trace_id`) |
 | CLI | `make tasks`, `make decisions`, `make logs` | a task tábla, a döntési napló és a JSON-naplók a terminálban |
 
@@ -104,7 +104,7 @@ classDiagram
     }
 
     class Research {
-        <<LLM: Claude Opus 5.5>>
+        <<LLM: Claude Sonnet 5.5>>
         cél: napi piaci összkép, legfeljebb 3 ötlet, pozíció-újraértékelés, tanulság
         skill: market-scan
         skill: narrative-and-sentiment
@@ -117,7 +117,7 @@ classDiagram
     }
 
     class PortfolioManager {
-        <<LLM + determinisztikus előszűrés és kapu>>
+        <<LLM: Claude Opus 5.5 + determinisztikus előszűrés és kapu>>
         cél: ötlet-challenge a portfólió ismeretében, döntés, méretezés
         előszűrés: precheck_idea (eszközosztály, deviza, már tartott)
         skill: idea-challenge
@@ -297,10 +297,10 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 
 | Szolgáltatás | Állapot | Feladat |
 |---|---|---|
-| `services/knowledge` | működik | a tudásbázis egyetlen gazdája: döntési napló, cégjegyzetek, tanulságok; REST az írásra, MCP (csak olvasás) az agenteknek |
+| `services/knowledge` | működik | a tudásbázis egyetlen gazdája: döntési napló, cégjegyzetek, tanulságok, és az LLM-taszkok lépései (`agent_activity`, az élő nézethez; best-effort, nem memória); REST az írásra, MCP (csak olvasás) az agenteknek |
 | `mcp-servers/ibkr` | működik | csak olvasó IBKR-toolok (ár, history, hírek, contract, pozíciók, számla) |
 | ibkrfacade (külön repó) | működik | REST az IB Gateway fölött; paper/live védelem, idempotens order |
-| `services/scheduler` | működik | munkanapokon (hétfő–péntek, Europe/Budapest) 09:00 scan, 15:30 review, 21:00 kiértékelés; kézzel: `make run-job job=...` |
+| `services/scheduler` | működik | munkanapokon (hétfő–péntek, Europe/Budapest) 09:00 scan, 15:30 review, 21:00 kiértékelés; kézzel: `make run-job job=...`, a scan a dashboardról is (▶ Ötletgenerálás) |
 | döntés-kiértékelő (a scheduler `evaluate` jobja) | működik | a lezárt pozíciók realizált hozama a fill-ekből (benchmark nélkül) → `decision_outcome` a naplóba és a Researchnek |
 | `services/dashboard` | működik | `localhost:8080`, lásd [Felületek](#felületek) |
 | Jaeger (trace) | működik | `localhost:16686`, memóriában (restartkor elvész; az audit a Postgres) |
@@ -352,7 +352,7 @@ make down                  # az Auxin leállítása (a broker stacké: make ibkr
 Kézi indítás és ellenőrzés:
 
 ```
-make scan                  # egy napi scan (vételi hurok)
+make scan                  # egy napi scan (vételi hurok); ugyanez a dashboardon: ▶ Ötletgenerálás, élő nézettel
 make review                # napi review (függő megbízások, pozíciónkénti újraértékelés, eladás)
 make run-job job=evaluate  # egy scheduler-job most (scan | review | evaluate)
 make execute-pending       # zárt piac miatt függő megbízások leadása

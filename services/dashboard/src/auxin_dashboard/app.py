@@ -1,9 +1,13 @@
-"""Dashboard: a read-only JSON API and one static page (localhost only).
+"""Dashboard: a JSON API and one static page (localhost only).
 
 Postgres in read-only sessions (`default_transaction_read_only=on`: any write fails), the shared role (decision
-7.); the portfolio live from the IBKR MCP server's read tools, no mirror table (decision 7.).
+7.); the portfolio live from the IBKR MCP server's read tools, no mirror table (decision 7.). Its one action
+(Mihály, 2026-10-30): a scan_trigger to Research, like `make scan`, on a PAPER account only and one at a time;
+the live view follows it from the task store, the decision log and the agents' activity steps.
 """
+import asyncio
 import json
+import logging
 import os
 import uuid
 from pathlib import Path
@@ -15,9 +19,12 @@ from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from auxin_a2a.client import new_trace_id, send, task_summary
 from auxin_a2a.store import database_url
 from auxin_runtime.ibkr import read_tools
+from auxin_schemas.metadata import MessageType
 
+log = logging.getLogger("auxin.dashboard")
 STATIC = Path(__file__).parent / "static"
 JAEGER_UI_URL = os.environ.get("AUXIN_JAEGER_UI_URL", "http://localhost:16686").rstrip("/")
 JAEGER_API_URL = os.environ.get("AUXIN_JAEGER_API_URL", "http://jaeger:16686").rstrip("/")
@@ -60,6 +67,27 @@ async def _jaeger_url(trace_id: str) -> str | None:
     except httpx.HTTPError:
         found = False
     return f"{JAEGER_UI_URL}/trace/{trace_id}" if found else None
+
+
+async def _with_tokens(tasks: list[dict]) -> list[dict]:
+    """Each task's LLM tokens (input, output, cache read / creation, total) from its task_finished activity steps;
+    None for tasks without an LLM run (Execution, triggers) or from before the activity log."""
+    rows = await _rows("SELECT task_id, text FROM agent_activity WHERE kind = 'task_finished' AND task_id = ANY(:ids)",
+                       ids=[t["task_id"] for t in tasks])
+    tokens: dict[str, dict] = {}
+    for r in rows:
+        try:
+            used = json.loads(r["text"]).get("tokens") or {}
+        except ValueError:
+            continue
+        if not used:
+            continue
+        total = tokens.setdefault(r["task_id"], {})
+        for k, v in used.items():
+            total[k] = total.get(k, 0) + v
+    for t in tasks:
+        t["tokens"] = tokens.get(t["task_id"])
+    return tasks
 
 
 @app.get("/")
@@ -135,7 +163,7 @@ async def flow(trace_id: str) -> dict:
     for d in decisions:
         d.pop("search", None)
     return {"trace_id": trace_id, "jaeger_url": await _jaeger_url(trace_id),
-            "tasks": [_task(t, detail=True) for t in tasks], "decisions": decisions}
+            "tasks": await _with_tokens([_task(t, detail=True) for t in tasks]), "decisions": decisions}
 
 
 @app.get("/api/decisions")
@@ -172,6 +200,18 @@ def _idea_status(kinds: set[str], reject: dict | None) -> tuple[str, str]:
     if "proposal" in kinds:
         return "open", "Javaslat, döntésre vár"
     return "open", "Nincs döntés"
+
+
+def _gate_pass(row: dict) -> dict | None:
+    """The rule gate passed (a BUY order with its sizing): its own control point, drawn from the PM's order row."""
+    sizing = row["payload"].get("sizing") if row["kind"] == "order" else None
+    if not sizing or row["payload"].get("order", {}).get("side") != "BUY":
+        return None
+    return {"kind": "gate_pass", "role": "Szabálykapu", "agent": row["agent"], "phase": "ötlet",
+            "created_at": row["created_at"], "symbol": row["symbol"], "trace_id": row["trace_id"],
+            "idea_id": row.get("idea_id"), "summary": f"Átment: {sizing.get('quantity'):g} db "
+            f"(~{sizing.get('order_value')}), kötő limit: {sizing.get('binding_limit')}", "payload": sizing,
+            "snapshot": None}
 
 
 @app.get("/api/ideas")
@@ -243,13 +283,8 @@ async def idea(idea_id: str) -> dict:
         r["payload"], r["snapshot"] = _json(r["payload"]), _json(r["snapshot"])
         r["role"] = _role(r)
         events.append(r)
-        sizing = r["payload"].get("sizing") if r["kind"] == "order" else None
-        if sizing and r["phase"] == "ötlet":  # the rule gate passed: its own control point, from the PM's sizing
-            events.append({"kind": "gate_pass", "role": "Szabálykapu", "agent": r["agent"], "phase": "ötlet",
-                           "created_at": r["created_at"], "symbol": r["symbol"], "trace_id": r["trace_id"],
-                           "summary": f"Átment: {sizing.get('quantity'):g} db (~{sizing.get('order_value')}), "
-                                      f"kötő limit: {sizing.get('binding_limit')}",
-                           "payload": sizing, "snapshot": None})
+        if r["phase"] == "ötlet" and (gate := _gate_pass(r)):
+            events.append(gate)
     for lesson in lessons:
         events.append({"kind": "lesson", "role": AGENT_ROLES.get(lesson["agent"], lesson["agent"]),
                        "agent": lesson["agent"], "phase": "utókövetés", "created_at": lesson["created_at"],
@@ -264,11 +299,67 @@ async def idea(idea_id: str) -> dict:
     return {"idea": head, "category": category, "status": status, "events": events, "traces": traces}
 
 
+_scans: set[asyncio.Task] = set()  # scans started here, still followed (the send returns at the final state)
+
+
+def _scan_done(task: asyncio.Task) -> None:
+    _scans.discard(task)
+    error = None if task.cancelled() else task.exception()
+    log.info(json.dumps({"event": "scan_finished", "error": str(error) if error else None,
+                         "result": None if error or task.cancelled() else task_summary(task.result())["state"]}))
+
+
+@app.post("/api/scan", status_code=202)
+async def start_scan() -> dict:
+    """The dashboard's one write: scan_trigger -> Research (the buy flow), on a PAPER account, one at a time."""
+    try:
+        (account,) = await read_tools([("get_account_summary", {})])
+    except Exception as exc:  # noqa: BLE001 - broker down: no scan
+        raise HTTPException(503, f"broker not reachable: {type(exc).__name__}: {exc}") from None
+    if account.get("account_mode") != "PAPER":
+        raise HTTPException(409, {"message": f"not a PAPER account: {account.get('account_mode')}"})
+    running = await _rows(
+        """SELECT metadata->>'trace_id' AS trace_id FROM a2a_tasks WHERE metadata->>'type' = 'scan_trigger'
+             AND status->>'state' ~ '(SUBMITTED|WORKING)$' AND last_updated > now() - interval '1 hour'
+           ORDER BY last_updated DESC LIMIT 1""")
+    if _scans or running:
+        raise HTTPException(409, {"message": "a scan is already running",
+                                  "trace_id": running[0]["trace_id"] if running else None})
+    flow_id, trace_id = str(uuid.uuid4()), new_trace_id()
+    scan = asyncio.create_task(send(
+        sender="dashboard", recipient="research", type=MessageType.SCAN_TRIGGER, subject="scan_trigger (dashboard)",
+        payload={}, task_id=flow_id, correlation_id=flow_id, trace_id=trace_id))
+    _scans.add(scan)
+    scan.add_done_callback(_scan_done)
+    log.info(json.dumps({"event": "scan_started", "trace_id": trace_id, "account": account.get("account")}))
+    return {"trace_id": trace_id}
+
+
+@app.get("/api/live/{trace_id}")
+async def live(trace_id: str) -> dict:
+    """One flow as it runs: its tasks, its decision-log rows (with roles) and every LLM step recorded so far."""
+    tasks = await _rows(f"SELECT {TASK_COLUMNS}, last_updated FROM a2a_tasks WHERE metadata->>'trace_id' = :t "
+                        "ORDER BY last_updated", t=trace_id)
+    decisions = await _rows("SELECT id, created_at, kind, agent, symbol, summary, idea_id, payload, trace_id "
+                            "FROM decisions WHERE trace_id = :t ORDER BY created_at", t=trace_id)
+    activity = await _rows("SELECT created_at, agent, task_id, seq, kind, name, text, is_error FROM agent_activity "
+                           "WHERE trace_id = :t ORDER BY created_at, seq", t=trace_id)
+    tasks = await _with_tokens([_task(t) for t in tasks])
+    events = []
+    for d in decisions:
+        d["payload"] = _json(d["payload"])
+        d["role"], d["phase"], d["snapshot"] = _role(d), "ötlet", None
+        events += [d, *filter(None, [_gate_pass(d)])]
+    starting = any(not s.done() for s in _scans) and not tasks
+    return {"trace_id": trace_id, "running": starting or any(t["state"] in ("SUBMITTED", "WORKING") for t in tasks),
+            "tasks": tasks, "decisions": events, "activity": activity}
+
+
 @app.get("/api/tasks")
 async def tasks(limit: int = 200) -> list[dict]:
     rows = await _rows(f"SELECT {TASK_COLUMNS}, last_updated FROM a2a_tasks ORDER BY last_updated DESC LIMIT :limit",
                        limit=limit)
-    return [_task(r) for r in rows]
+    return await _with_tokens([_task(r) for r in rows])
 
 
 @app.get("/api/outcomes")
@@ -282,5 +373,6 @@ async def outcomes() -> dict:
 
 
 def main() -> int:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8000")), log_level="warning")  # noqa: S104
     return 0

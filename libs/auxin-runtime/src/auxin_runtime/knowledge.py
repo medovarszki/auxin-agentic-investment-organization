@@ -8,7 +8,7 @@ import os
 
 import httpx
 
-from auxin_schemas.knowledge import DecisionRecord, Lesson, Written
+from auxin_schemas.knowledge import Activity, DecisionRecord, Lesson, Written
 
 log = logging.getLogger("auxin.runtime")
 
@@ -39,6 +39,19 @@ async def record_decision(record: DecisionRecord) -> Written | None:
 async def record_lesson(lesson: Lesson) -> Written | None:
     """Idempotent, like record_decision."""
     return await _write("/lessons", lesson, "lesson")
+
+
+async def record_activity(steps: list[Activity]) -> None:
+    """Best-effort (live view only): a failed write is logged and dropped, never fails the task."""
+    url = knowledge_url()
+    if url is None or not steps:
+        return
+    try:
+        async with httpx.AsyncClient(base_url=url, timeout=httpx.Timeout(5.0), trust_env=False) as http:
+            response = await http.post("/activity", json=[s.model_dump(mode="json") for s in steps])
+            response.raise_for_status()
+    except httpx.HTTPError as exc:
+        log.warning(json.dumps({"event": "activity_dropped", "steps": len(steps), "error": str(exc)[:200]}))
 
 
 async def get_decisions(**params) -> list[dict]:

@@ -22,7 +22,7 @@ from auxin_runtime.execution import execute, execute_pending
 from auxin_runtime.ibkr import read_tools
 from auxin_runtime.knowledge import get_decisions, record_decision, record_lesson
 from auxin_schemas.rules import GateReject, precheck_idea, size_buy, size_sell
-from auxin_runtime.runner import run_task
+from auxin_runtime.runner import run_task, token_usage
 
 log = logging.getLogger("auxin.runtime")
 
@@ -37,10 +37,11 @@ def _ctx(msg: Incoming) -> dict:
 
 
 async def _llm(desc: AgentDescriptor, prompt: str, options, model, msg: Incoming):
-    record = await run_task(desc.name, prompt, options, model, task_id=msg.task_id)
+    record = await run_task(desc.name, prompt, options, model, task_id=msg.task_id, trace_id=msg.meta.trace_id)
     if record.state is not TaskState.COMPLETED:
         raise RuntimeError(record.error)
-    return model.model_validate(record.output), {"cost_usd": record.cost_usd, "num_turns": record.num_turns}
+    return model.model_validate(record.output), {"cost_usd": record.cost_usd, "num_turns": record.num_turns,
+                                                 "tokens": token_usage(record.usage)}
 
 
 def research(desc: AgentDescriptor, agent_dir: Path) -> Handler:
@@ -79,7 +80,8 @@ def research(desc: AgentDescriptor, agent_dir: Path) -> Handler:
         """The scan; every idea recorded in the decision log before it goes to the PM."""
         trigger = msg.payload.get("trigger", "scan")
         prompt = (agent_dir / "prompts" / f"{trigger}.md").read_text()
-        record = await run_task(desc.name, prompt, scan_options, MarketScanResult, task_id=msg.task_id)
+        record = await run_task(desc.name, prompt, scan_options, MarketScanResult, task_id=msg.task_id,
+                                trace_id=msg.meta.trace_id)
         if record.state is not TaskState.COMPLETED:
             raise RuntimeError(record.error)
         result = MarketScanResult.model_validate(record.output)
@@ -97,6 +99,7 @@ def research(desc: AgentDescriptor, agent_dir: Path) -> Handler:
             )
             handoffs.append({"symbol": idea.instrument.symbol, **task_summary(task)})
         return {"scan": record.output, "cost_usd": record.cost_usd, "num_turns": record.num_turns,
+                "tokens": token_usage(record.usage),
                 "handoffs": handoffs}
 
     async def handle(msg: Incoming) -> dict:

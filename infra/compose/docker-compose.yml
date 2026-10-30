@@ -183,8 +183,9 @@ services:
     cpus: 0.5
     mem_limit: 512m
 
-  # Dashboard: read-only JSON API + one static page on localhost:8080. Postgres in read-only sessions, the
-  # portfolio live through mcp-ibkr; no Claude token, no ibkrfacade access.
+  # Dashboard: JSON API + one static page on localhost:8080. Postgres in read-only sessions, the portfolio live
+  # through mcp-ibkr; no Claude token, no ibkrfacade access. Its one action: a scan_trigger to Research (A2A,
+  # PAPER account only, one at a time), followed live from the task store and the agent_activity table.
   dashboard:
     <<: *agent-hardening
     build:

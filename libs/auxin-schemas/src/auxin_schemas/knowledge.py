@@ -69,6 +69,30 @@ class Lesson(_Model):
     task_id: str | None = None
 
 
+class ActivityKind(StrEnum):
+    TASK_STARTED = "task_started"
+    TEXT = "text"
+    THINKING = "thinking"
+    TOOL_USE = "tool_use"
+    TOOL_RESULT = "tool_result"
+    TASK_FINISHED = "task_finished"
+
+
+class Activity(_Model):
+    """One step of an LLM task as it happens (tool call, its result, the model's text), for live following.
+    Not part of the decision log: an operational trace, written best-effort by the runtime."""
+
+    id: UUID = Field(default_factory=uuid4)
+    agent: str = Field(min_length=1)
+    task_id: str | None = None
+    trace_id: str | None = None
+    seq: int = Field(ge=0)  # order within the task
+    kind: ActivityKind
+    name: str | None = None  # the tool's name for tool_use / tool_result
+    text: str = ""  # truncated
+    is_error: bool = False
+
+
 class Written(_Model):
     id: UUID
     created: bool  # False: the record already existed (idempotent write)

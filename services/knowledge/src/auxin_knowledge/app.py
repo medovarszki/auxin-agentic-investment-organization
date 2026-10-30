@@ -19,8 +19,8 @@ from fastapi import FastAPI, Query
 from mcp.server import MCPServer
 
 from auxin_knowledge import repo
-from auxin_knowledge.db import CompanyNoteRow, Decision, LessonRow, make_engine
-from auxin_schemas.knowledge import CompanyNote, DecisionKind, DecisionRecord, Lesson, Written
+from auxin_knowledge.db import ActivityRow, CompanyNoteRow, Decision, LessonRow, make_engine
+from auxin_schemas.knowledge import Activity, CompanyNote, DecisionKind, DecisionRecord, Lesson, Written
 
 log = logging.getLogger("auxin.knowledge")
 MIGRATIONS = Path(__file__).parent / "migrations" / "alembic.ini"
@@ -98,6 +98,14 @@ async def post_company_note(note: CompanyNote) -> Written:
 @api.post("/lessons", status_code=201)
 async def post_lesson(lesson: Lesson) -> Written:
     return _logged("lessons", await repo.write(engine, LessonRow, lesson))
+
+
+@api.post("/activity", status_code=201)
+async def post_activity(steps: list[Activity]) -> dict:
+    """A batch of live LLM steps; idempotent per id, not logged one by one (high volume)."""
+    for step in steps:
+        await repo.write(engine, ActivityRow, step)
+    return {"written": len(steps)}
 
 
 @api.get("/decisions")
