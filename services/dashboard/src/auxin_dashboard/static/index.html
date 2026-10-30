@@ -256,6 +256,9 @@ function ideaGraphSvg(ev, sel, upto) {
       <path d="M0,0 L10,5 L0,10 z" fill="currentColor" class="muted" opacity=".6"></path></marker></defs>${svg}</svg>`;
 }
 
+const jaegerLink = url => url ? `<a href="${esc(url)}" target="_blank" rel="noopener">Jaeger</a>`
+  : `<span class="muted" title="A Jaeger in-memory tárol: újraindítás után a régebbi trace-ek elvesznek">Jaeger: nem elérhető</span>`;
+
 async function api(path) {
   const r = await fetch(path);
   if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
@@ -324,7 +327,7 @@ const views = {
       ...f.decisions.map(d => ({at: d.created_at, type: "decision", d})),
     ].sort((x, y) => new Date(x.at) - new Date(y.at));
     let html = `<p><a href="#flows">← Folyamatok</a> · trace <span class="mono">${esc(f.trace_id)}</span> ·
-      <a href="${esc(f.jaeger_url)}" target="_blank" rel="noopener">Jaeger</a></p>`;
+      ${jaegerLink(f.jaeger_url)}</p>`;
     html += table([
       {h: "Idő", f: e => time(e.at)},
       {h: "", f: e => e.type === "task" ? `<span class="tag">taszk</span>` : `<span class="tag ${kindCls(e.d.kind)}">${esc(e.d.kind)}</span>`},
@@ -394,7 +397,7 @@ const views = {
     const roles = [...new Set(events.map(e => e.role))].sort((a, b) => ROLE_ORDER.indexOf(a) - ROLE_ORDER.indexOf(b));
     const ev = events.slice().sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
     let html = `<p><a href="#ideas">← Ötletek</a> · ${d.traces.map(t =>
-        `trace <a class="mono" href="#flow/${esc(t)}">${short(t)}</a> (<a href="${esc(d.jaeger_ui_url)}/trace/${esc(t)}" target="_blank" rel="noopener">Jaeger</a>)`).join(" · ")}</p>
+        `trace <a class="mono" href="#flow/${esc(t.trace_id)}">${short(t.trace_id)}</a> (${jaegerLink(t.jaeger_url)})`).join(" · ")}</p>
       <h2 style="font-size:20px;margin:8px 0 2px">${esc(i.symbol)} <span class="muted" style="font-weight:400">${esc(p.instrument?.name || "")}</span>
         <span class="tag ${catCls(d.category)}" style="font-size:13px">${esc(d.status)}</span></h2>
       <p class="lede">${esc(i.summary)}</p>

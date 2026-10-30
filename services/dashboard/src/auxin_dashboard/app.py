@@ -8,6 +8,7 @@ import os
 import uuid
 from pathlib import Path
 
+import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -19,6 +20,7 @@ from auxin_runtime.ibkr import read_tools
 
 STATIC = Path(__file__).parent / "static"
 JAEGER_UI_URL = os.environ.get("AUXIN_JAEGER_UI_URL", "http://localhost:16686").rstrip("/")
+JAEGER_API_URL = os.environ.get("AUXIN_JAEGER_API_URL", "http://jaeger:16686").rstrip("/")
 
 engine = create_async_engine(database_url(), pool_pre_ping=True,
                              connect_args={"server_settings": {"default_transaction_read_only": "on"}})
@@ -48,6 +50,16 @@ def _task(row: dict, detail: bool = False) -> dict:
         row["status_message"] = " ".join(p.get("text", "") for p in (status.get("message") or {}).get("parts", []))
         row["artifacts"] = [p.get("data") for a in artifacts for p in a.get("parts", []) if "data" in p]
     return row
+
+
+async def _jaeger_url(trace_id: str) -> str | None:
+    """The trace's Jaeger UI link, or None when Jaeger no longer holds it (in-memory storage: lost on restart)."""
+    try:
+        async with httpx.AsyncClient(timeout=3, trust_env=False) as client:
+            found = (await client.get(f"{JAEGER_API_URL}/api/traces/{trace_id}")).status_code == 200
+    except httpx.HTTPError:
+        found = False
+    return f"{JAEGER_UI_URL}/trace/{trace_id}" if found else None
 
 
 @app.get("/")
@@ -122,7 +134,7 @@ async def flow(trace_id: str) -> dict:
         raise HTTPException(404, "unknown trace")
     for d in decisions:
         d.pop("search", None)
-    return {"trace_id": trace_id, "jaeger_url": f"{JAEGER_UI_URL}/trace/{trace_id}",
+    return {"trace_id": trace_id, "jaeger_url": await _jaeger_url(trace_id),
             "tasks": [_task(t, detail=True) for t in tasks], "decisions": decisions}
 
 
@@ -247,9 +259,9 @@ async def idea(idea_id: str) -> dict:
     category, status = _idea_status({r["kind"] for r in rows if r["phase"] == "ötlet"}, reject)
     if any(r["kind"] == "decision_outcome" for r in rows):
         status = "Lezárva"
-    traces = list(dict.fromkeys(r["trace_id"] for r in rows if r["trace_id"]))
-    return {"idea": head, "category": category, "status": status, "events": events, "traces": traces,
-            "jaeger_ui_url": JAEGER_UI_URL}
+    traces = [{"trace_id": t, "jaeger_url": await _jaeger_url(t)}
+              for t in dict.fromkeys(r["trace_id"] for r in rows if r["trace_id"])]
+    return {"idea": head, "category": category, "status": status, "events": events, "traces": traces}
 
 
 @app.get("/api/tasks")
