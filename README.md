@@ -12,7 +12,7 @@ Az Auxin egy **kizárólag agentekből álló, virtuális befektetési alapkezel
 
 | Felület | Cím | Mire való |
 |---|---|---|
-| **Dashboard** | <http://localhost:8080> | portfólió élőben (NAV, cash, pozíciók, súly, P&L, utolsó review); **▶ Ötletgenerálás** gomb (egy `scan_trigger` a Researchnek, csak PAPER számlán, egyszerre egy) és **élő nézet**: agentenként mit csinál éppen az LLM (keresések, tool-hívások és eredményeik, köztes szöveg, az `agent_activity` táblából), a döntések szerepkör-sávos gráfon, ahogy születnek; ötletmenedzser (minden generált ötlet, elfogadott / elutasított / folyamatban szűrővel, kattintható folyam-diagrammal; ötletenként a teljes history lejátszható gráfon és szerepkörök szerint); folyamatok trace szerint, döntési napló szűrővel, taszkok, lezárt pozíciók és tanulságok. Egyetlen írási művelete a scan indítása, a DB-t csak olvassa |
+| **Dashboard** | <http://localhost:8080> | portfólió élőben (NAV, cash, pozíciók, súly, P&L, utolsó review); **▶ Ötletgenerálás** gomb (egy `scan_trigger` a Researchnek, csak PAPER számlán, egyszerre egy), **＋ Saját ötlet** (kézi ötlet: ticker + tézis, opcionálisan háttér; a dashboard feloldja az IBKR conidra, a döntési naplóba írja `Kézi ötlet` szereppel, majd `idea`-ként a PM-nek küldi, aki ugyanúgy challenge-eli, mint a Research ötleteit; PAPER, egyszerre egy folyamat) és **élő nézet**: agentenként mit csinál éppen az LLM (keresések, tool-hívások és eredményeik, köztes szöveg, az `agent_activity` táblából), a döntések szerepkör-sávos gráfon, ahogy születnek; ötletmenedzser (minden generált ötlet, elfogadott / elutasított / folyamatban szűrővel, kattintható folyam-diagrammal; ötletenként a teljes history lejátszható gráfon és szerepkörök szerint); folyamatok trace szerint, döntési napló szűrővel, taszkok, lezárt pozíciók és tanulságok. Két írási művelete a scan és a kézi ötlet indítása (a döntési naplóba a knowledge REST-en át ír), a DB-t csak olvassa |
 | **Jaeger** | <http://localhost:16686> | trace-ek: A2A-hívások, `invoke_agent` (modell, tokenek, turnök), `execute_tool` (WebSearch, MCP), HTTP. A dashboard minden folyamatnál Jaeger-linket ad (ugyanaz a `trace_id`) |
 | CLI | `make tasks`, `make decisions`, `make logs` | a task tábla, a döntési napló és a JSON-naplók a terminálban |
 
@@ -21,7 +21,7 @@ Mindkét webes felület csak a `127.0.0.1`-re publikál, authentikáció nincs. 
 | Belső végpont | Hálózat | Ki hívja |
 |---|---|---|
 | `http://<agent>:8000` (A2A JSON-RPC + SSE, Agent Card) | `agents` | agentek, scheduler, operator |
-| `http://knowledge:8000` (REST írás, `/mcp` olvasás) | `agents` | runtime, Execution, scheduler / LLM-agentek |
+| `http://knowledge:8000` (REST írás, `/mcp` olvasás) | `agents` | runtime, Execution, scheduler, dashboard (kézi ötlet) / LLM-agentek |
 | `http://mcp-ibkr:8000/mcp` (csak olvasó IBKR-toolok) | `agents`, `ibkr-backend` | LLM-agentek, PM-kapu, dashboard |
 | `http://ibkrfacade:8082/ibkr` (REST, írás is) | `ibkr-backend` | csak az MCP szerver és az Execution |
 | `postgres:5432` | `agents` | A2A task store, tudásbázis, dashboard (read-only session) |
@@ -61,6 +61,8 @@ flowchart LR
     ib(["IBKR paper számla"])
 
     user --> dashboard & jaeger
+    dashboard -- "A2A idea (kézi ötlet)" --> pm
+    dashboard -- "REST (kézi ötlet)" --> knowledge
     user -. make .-> operator
     scheduler -- A2A --> research & pm
     operator -- A2A --> research & pm
@@ -125,7 +127,7 @@ classDiagram
         kapu: size_buy (portfolio-rules.yaml)
         review: size_sell (LLM nélkül)
         tool: WebSearch, WebFetch, IBKR MCP, knowledge MCP
-        fogad: idea, review_trigger
+        fogad: idea (Researchtől vagy kézi, a dashboardról), review_trigger
         küld: order, idea_reject, proposal_reject, review_request, execute_pending
     }
 
@@ -290,7 +292,7 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 | Pozíció | Típus | Állapot | Felelősség | Fogad | Küld |
 |---|---|---|---|---|---|
 | **Research** | LLM-agent (2026-10-26 óta egy agent, a korábbi Market & Sentimenttel) | működik | **Ötletek:** napi piaci összkép, sentiment, narratíva; legfeljebb 3 ötlet IBKR conidra oldva, a PM-nek; kihagyja, ami a portfólióban van vagy 30 napon belül elutasított; nem challenge-el, célárat nem ad. **Review:** napi pozíció-újraértékelés (`position-review`: HOLD / REDUCE cél-súllyal / CLOSE). **Tanulság** a lezárt pozíciókból (`lesson`, a runtime írja a `lessons` táblába) | `scan_trigger`, `review_request`, `decision_outcome` | `idea`, `review_result`, `lesson` |
-| **Portfolio Manager** | LLM-agent + determinisztikus elő- és szabálykapu | működik | a Research ötleteit a portfólió ismeretében validálja és challenge-eli (`idea-challenge`, 2026-10-26 óta): determinisztikus előszűrés LLM előtt (eszközosztály, bázisdeviza, már tartott), majd először a portfólió-illeszkedés (cash, ugyanaz a fogadás, kockázati bucket helye, emlékezet), csak utána a teljes kutatás (web, IBKR, tudásbázis); BUY saját javaslattal (célár, horizont, ≥3 kockázat, ≥3 datált forrás, conviction 1–5) vagy REJECT; kockázati bucketbe (1–4) sorol (`risk-bucket`); a runtime ellenőrzi a szabályokat és méretez (zárt piacnál az utolsó záróárral); napi review: a runtime a Research javaslatát LLM nélkül hajtja végre (REDUCE / CLOSE → SELL) | `idea`, `review_trigger` | `order`, `idea_reject`, `proposal_reject`, `review_request`, `execute_pending` |
+| **Portfolio Manager** | LLM-agent + determinisztikus elő- és szabálykapu | működik | a Research ötleteit a portfólió ismeretében validálja és challenge-eli (`idea-challenge`, 2026-10-26 óta): determinisztikus előszűrés LLM előtt (eszközosztály, bázisdeviza, már tartott), majd először a portfólió-illeszkedés (cash, ugyanaz a fogadás, kockázati bucket helye, emlékezet), csak utána a teljes kutatás (web, IBKR, tudásbázis); BUY saját javaslattal (célár, horizont, ≥3 kockázat, ≥3 datált forrás, conviction 1–5) vagy REJECT; kockázati bucketbe (1–4) sorol (`risk-bucket`); a runtime ellenőrzi a szabályokat és méretez (zárt piacnál az utolsó záróárral); napi review: a runtime a Research javaslatát LLM nélkül hajtja végre (REDUCE / CLOSE → SELL) | `idea` (Researchtől, vagy kézi ötletként a dashboardról: `origin: manual`), `review_trigger` | `order`, `idea_reject`, `proposal_reject`, `review_request`, `execute_pending` |
 | **Execution** | determinisztikus service | működik | ellenőrzés (paper számla, egyezés a PM döntésével a naplóban, SELL ≤ tartott mennyiség, friss ár), megbízás csak kereskedési időben (zárt piacnál függő, a 15:30-as review adja le), market / DAY, idempotens (`client_order_id = decision_id`); az egyetlen IBKR írási joggal | `order`, `execute_pending` | `fill`, `order_reject` |
 
 ### Támogató szolgáltatások (nem szerepek)
@@ -302,7 +304,7 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 | ibkrfacade (külön repó) | működik | REST az IB Gateway fölött; paper/live védelem, idempotens order |
 | `services/scheduler` | működik | munkanapokon (hétfő–péntek, Europe/Budapest) 09:00 scan, 15:30 review, 21:00 kiértékelés; kézzel: `make run-job job=...`, a scan a dashboardról is (▶ Ötletgenerálás) |
 | döntés-kiértékelő (a scheduler `evaluate` jobja) | működik | a lezárt pozíciók realizált hozama a fill-ekből (benchmark nélkül) → `decision_outcome` a naplóba és a Researchnek |
-| `services/dashboard` | működik | `localhost:8080`, lásd [Felületek](#felületek) |
+| `services/dashboard` | működik | `localhost:8080`, lásd [Felületek](#felületek); kézi ötlet: feloldás (IBKR MCP), döntési napló (knowledge REST), `idea` a PM-nek |
 | Jaeger (trace) | működik | `localhost:16686`, memóriában (restartkor elvész; az audit a Postgres) |
 
 ### Befektetési szabályok (röviden)
@@ -322,8 +324,8 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 
 | Ki | Mit dobhat vissza | Mi alapján |
 |---|---|---|
-| PM előszűrés (determinisztikus, LLM előtt) | Research ötletét | eszközosztály, nem bázisdeviza, már tartott pozíció |
-| Portfolio Manager (LLM, challenge) | Research ötletét | portfólió-illeszkedés (cash, ugyanaz a fogadás, kockázati bucket helye), gyenge tézis, hiányzó adat, < 15% hozampotenciál; indoklással |
+| PM előszűrés (determinisztikus, LLM előtt) | Research ötletét (és a kézi ötletet) | eszközosztály, nem bázisdeviza, már tartott pozíció |
+| Portfolio Manager (LLM, challenge) | Research ötletét (és a kézi ötletet, ugyanazzal a mércével) | portfólió-illeszkedés (cash, ugyanaz a fogadás, kockázati bucket helye), gyenge tézis, hiányzó adat, < 15% hozampotenciál; indoklással |
 | PM szabálykapu (determinisztikus) | a PM döntését | `portfolio-rules.yaml`: upside, pozíció-, szektor-, bucketlimit, szabad cash; bázisdeviza, már tartott pozíció |
 | Execution (determinisztikus) | megbízást | nem paper számla, eltér a PM döntésétől, SELL több a tartottnál, nincs friss ár |
 

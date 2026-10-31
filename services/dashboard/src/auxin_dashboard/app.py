@@ -1,9 +1,11 @@
 """Dashboard: a JSON API and one static page (localhost only).
 
 Postgres in read-only sessions (`default_transaction_read_only=on`: any write fails), the shared role (decision
-7.); the portfolio live from the IBKR MCP server's read tools, no mirror table (decision 7.). Its one action
-(Mihály, 2026-10-30): a scan_trigger to Research, like `make scan`, on a PAPER account only and one at a time;
-the live view follows it from the task store, the decision log and the agents' activity steps.
+7.); the portfolio live from the IBKR MCP server's read tools, no mirror table (decision 7.). Its two actions,
+both on a PAPER account only and one flow at a time: a scan_trigger to Research, like `make scan` (Mihály,
+2026-10-30), and a manually entered idea (Mihály, 2026-10-31): recorded in the decision log through the knowledge
+REST, then sent to the Portfolio Manager like a Research idea. The live view follows both from the task store, the
+decision log and the agents' activity steps.
 """
 import asyncio
 import json
@@ -16,12 +18,16 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from auxin_a2a.client import new_trace_id, send, task_summary
 from auxin_a2a.store import database_url
 from auxin_runtime.ibkr import read_tools
+from auxin_runtime.knowledge import record_decision
+from auxin_schemas.domain import InstrumentRef, ManualIdea
+from auxin_schemas.knowledge import DecisionKind, DecisionRecord
 from auxin_schemas.metadata import MessageType
 
 log = logging.getLogger("auxin.dashboard")
@@ -176,7 +182,9 @@ async def decisions(kind: str | None = None, symbol: str | None = None, limit: i
 
 
 REJECT_KINDS = ("idea_reject", "proposal_reject", "order_reject")
-AGENT_ROLES = {"research": "Research", "market-sentiment": "Market & Sentiment", "portfolio-manager": "Portfolio Manager",
+MANUAL_AGENT = "dashboard"  # the `agent` of a manually entered idea's decision-log row
+MANUAL_ROLE = "Kézi ötlet"
+AGENT_ROLES = {MANUAL_AGENT: MANUAL_ROLE, "research": "Research", "market-sentiment": "Market & Sentiment", "portfolio-manager": "Portfolio Manager",
                "execution": "Execution", "scheduler": "Kiértékelő"}
 
 
@@ -299,40 +307,110 @@ async def idea(idea_id: str) -> dict:
     return {"idea": head, "category": category, "status": status, "events": events, "traces": traces}
 
 
-_scans: set[asyncio.Task] = set()  # scans started here, still followed (the send returns at the final state)
+_scans: set[asyncio.Task] = set()  # flows started here (scan or manual idea), still followed (the send returns at the final state)
 
 
 def _scan_done(task: asyncio.Task) -> None:
     _scans.discard(task)
     error = None if task.cancelled() else task.exception()
-    log.info(json.dumps({"event": "scan_finished", "error": str(error) if error else None,
+    log.info(json.dumps({"event": "flow_finished", "name": task.get_name(), "error": str(error) if error else None,
                          "result": None if error or task.cancelled() else task_summary(task.result())["state"]}))
+
+
+async def _paper_account() -> dict:
+    """The account summary; 503 when the broker is down, 409 unless it is a PAPER account (the dashboard's writes)."""
+    try:
+        (account,) = await read_tools([("get_account_summary", {})])
+    except Exception as exc:  # noqa: BLE001 - broker down: no flow
+        raise HTTPException(503, f"broker not reachable: {type(exc).__name__}: {exc}") from None
+    if account.get("account_mode") != "PAPER":
+        raise HTTPException(409, {"message": f"not a PAPER account: {account.get('account_mode')}"})
+    return account
+
+
+async def _require_idle(*types: str) -> None:
+    """409 (with the running flow's trace_id) when a flow started here, or a task of these types, is still running."""
+    running = await _rows(
+        """SELECT metadata->>'trace_id' AS trace_id FROM a2a_tasks WHERE metadata->>'type' = ANY(:types)
+             AND status->>'state' ~ '(SUBMITTED|WORKING)$' AND last_updated > now() - interval '1 hour'
+           ORDER BY last_updated DESC LIMIT 1""", types=list(types))
+    if _scans or running:
+        raise HTTPException(409, {"message": "a flow is already running",
+                                  "trace_id": running[0]["trace_id"] if running else None})
+
+
+def _start_flow(name: str, flow_id: str, trace_id: str, **message) -> None:
+    """Sends the A2A message in the background (one flow = one trace) and follows it to its final state."""
+    flow = asyncio.create_task(send(sender="dashboard", task_id=flow_id, correlation_id=flow_id, trace_id=trace_id,
+                                    **message), name=name)
+    _scans.add(flow)
+    flow.add_done_callback(_scan_done)
 
 
 @app.post("/api/scan", status_code=202)
 async def start_scan() -> dict:
-    """The dashboard's one write: scan_trigger -> Research (the buy flow), on a PAPER account, one at a time."""
-    try:
-        (account,) = await read_tools([("get_account_summary", {})])
-    except Exception as exc:  # noqa: BLE001 - broker down: no scan
-        raise HTTPException(503, f"broker not reachable: {type(exc).__name__}: {exc}") from None
-    if account.get("account_mode") != "PAPER":
-        raise HTTPException(409, {"message": f"not a PAPER account: {account.get('account_mode')}"})
-    running = await _rows(
-        """SELECT metadata->>'trace_id' AS trace_id FROM a2a_tasks WHERE metadata->>'type' = 'scan_trigger'
-             AND status->>'state' ~ '(SUBMITTED|WORKING)$' AND last_updated > now() - interval '1 hour'
-           ORDER BY last_updated DESC LIMIT 1""")
-    if _scans or running:
-        raise HTTPException(409, {"message": "a scan is already running",
-                                  "trace_id": running[0]["trace_id"] if running else None})
+    """scan_trigger -> Research (the buy flow), on a PAPER account, one at a time."""
+    account = await _paper_account()
+    await _require_idle("scan_trigger")
     flow_id, trace_id = str(uuid.uuid4()), new_trace_id()
-    scan = asyncio.create_task(send(
-        sender="dashboard", recipient="research", type=MessageType.SCAN_TRIGGER, subject="scan_trigger (dashboard)",
-        payload={}, task_id=flow_id, correlation_id=flow_id, trace_id=trace_id))
-    _scans.add(scan)
-    scan.add_done_callback(_scan_done)
+    _start_flow("scan", flow_id, trace_id, recipient="research", type=MessageType.SCAN_TRIGGER,
+                subject="scan_trigger (dashboard)", payload={})
     log.info(json.dumps({"event": "scan_started", "trace_id": trace_id, "account": account.get("account")}))
     return {"trace_id": trace_id}
+
+
+class ManualIdeaIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    symbol: str = Field(min_length=1, max_length=20)  # the ticker; resolved to an IBKR conid
+    thesis: str = Field(min_length=1, max_length=2000)
+    rationale: str = Field(default="", max_length=4000)  # background, sources, links: optional
+
+
+def pick_listing(matches: list[dict], symbol: str, currency: str) -> dict | None:
+    """The IBKR search match for a manually entered ticker: an exact symbol match, preferring the account's base
+    currency (otherwise IBKR's own order). None when the ticker has no exact match (a company name is not guessed)."""
+    exact = [m for m in matches if str(m.get("symbol", "")).upper() == symbol.upper() and m.get("conid")]
+    exact.sort(key=lambda m: m.get("currency") != currency)
+    return exact[0] if exact else None
+
+
+@app.post("/api/ideas", status_code=202)
+async def add_idea(body: ManualIdeaIn) -> dict:
+    """A manually entered idea: resolved to an IBKR instrument, recorded in the decision log (agent `dashboard`),
+    then sent to the Portfolio Manager as an `idea` message, which challenges it like a Research idea. PAPER only,
+    one flow at a time."""
+    account = await _paper_account()
+    await _require_idle("scan_trigger", "idea", "review_trigger")
+    symbol = body.symbol.strip().upper()
+    try:
+        (matches,) = await read_tools([("search_contract", {"query": symbol})])
+        listing = pick_listing(matches, symbol, account.get("currency", "USD"))
+        (contract,) = await read_tools([("get_contract", {"conid": listing["conid"]})]) if listing else (None,)
+    except Exception as exc:  # noqa: BLE001 - broker down: no idea
+        raise HTTPException(503, f"broker not reachable: {type(exc).__name__}: {exc}") from None
+    if not listing:
+        raise HTTPException(422, {"message": f"no IBKR stock or ETF with the ticker {symbol}"})
+    idea = ManualIdea(
+        instrument=InstrumentRef(
+            symbol=listing["symbol"], name=contract.get("long_name") or listing.get("long_name") or listing["symbol"],
+            asset_class="etf" if contract.get("stock_type") == "ETF" else "stock",
+            exchange=contract.get("primary_exchange") or contract.get("exchange") or listing.get("exchange"),
+            currency=contract.get("currency") or listing.get("currency"), conid=listing["conid"]),
+        thesis=body.thesis.strip(), rationale=body.rationale.strip())
+    flow_id, trace_id = str(uuid.uuid4()), new_trace_id()
+    payload = idea.model_dump(mode="json")
+    # The decision log first (as Research's scan does): an idea the PM never saw would still show up as "no decision".
+    await record_decision(DecisionRecord(
+        id=idea.idea_id, kind=DecisionKind.IDEA, agent=MANUAL_AGENT, summary=idea.thesis,
+        conid=idea.instrument.conid, symbol=idea.instrument.symbol, idea_id=idea.idea_id, payload=payload,
+        correlation_id=flow_id, trace_id=trace_id, task_id=flow_id))
+    _start_flow("manual_idea", flow_id, trace_id, recipient="portfolio-manager", type=MessageType.IDEA,
+                subject=f"Idea: {idea.instrument.symbol} (manual)", payload=payload)
+    log.info(json.dumps({"event": "manual_idea_started", "trace_id": trace_id, "idea_id": str(idea.idea_id),
+                         "symbol": idea.instrument.symbol, "conid": idea.instrument.conid,
+                         "account": account.get("account")}))
+    return {"trace_id": trace_id, "idea_id": str(idea.idea_id), "instrument": payload["instrument"]}
 
 
 @app.get("/api/live/{trace_id}")

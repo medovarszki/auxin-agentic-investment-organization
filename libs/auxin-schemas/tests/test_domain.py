@@ -149,3 +149,20 @@ def test_pm_precheck_rejects_before_the_llm():
         with pytest.raises(GateReject) as exc:
             precheck_idea(idea(**ref), RULES, base_currency="USD", held_conids={117902840})
         assert exc.value.rule == rule
+
+
+def test_manual_idea_needs_no_sources_and_is_told_apart():
+    from auxin_schemas.domain import Idea, InstrumentRef, ManualIdea, parse_idea
+
+    ref = InstrumentRef(symbol="NVDA", name="NVIDIA", asset_class="stock", conid=4815747, currency="USD")
+    manual = ManualIdea(instrument=ref, thesis="AI capex keeps compounding")
+    assert manual.origin == "manual" and manual.sources == [] and manual.rationale == ""
+    parsed = parse_idea(manual.model_dump(mode="json"))  # the idea message body as the dashboard sends it
+    assert isinstance(parsed, ManualIdea) and parsed.idea_id == manual.idea_id
+
+    research = Idea(instrument=ref, thesis="t", rationale="r", sources=SOURCES[:1])
+    assert type(parse_idea(research.model_dump(mode="json"))) is Idea
+    with pytest.raises(ValidationError):  # a Research idea still needs a source and a rationale
+        parse_idea(research.model_dump(mode="json") | {"sources": []})
+    with pytest.raises(ValidationError):
+        Idea(instrument=ref, thesis="t", rationale="r", sources=[])

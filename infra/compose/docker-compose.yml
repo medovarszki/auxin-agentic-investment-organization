@@ -184,8 +184,9 @@ services:
     mem_limit: 512m
 
   # Dashboard: JSON API + one static page on localhost:8080. Postgres in read-only sessions, the portfolio live
-  # through mcp-ibkr; no Claude token, no ibkrfacade access. Its one action: a scan_trigger to Research (A2A,
-  # PAPER account only, one at a time), followed live from the task store and the agent_activity table.
+  # through mcp-ibkr; no Claude token, no ibkrfacade access. Its two actions (A2A, PAPER account only, one flow at a
+  # time): a scan_trigger to Research, and a manually entered idea (recorded through the knowledge REST, then an
+  # `idea` to the Portfolio Manager); followed live from the task store and the agent_activity table.
   dashboard:
     <<: *agent-hardening
     build:
@@ -195,12 +196,14 @@ services:
     environment:
       <<: *db-env
       AUXIN_MCP_IBKR_URL: http://mcp-ibkr:8000/mcp
+      AUXIN_KNOWLEDGE_URL: http://knowledge:8000
       AUXIN_JAEGER_UI_URL: http://localhost:16686
     networks: [agents, ui]
     ports: ["127.0.0.1:8080:8000"]
     depends_on:
       postgres: {condition: service_healthy}
       mcp-ibkr: {condition: service_started}
+      knowledge: {condition: service_healthy}
     cpus: 0.5
     mem_limit: 256m
 

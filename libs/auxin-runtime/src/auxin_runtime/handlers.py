@@ -10,8 +10,8 @@ import yaml
 from auxin_a2a.client import send, task_summary
 from auxin_a2a.server import Handler, Incoming, Rejected
 from auxin_schemas.domain import (
-    DecisionOutcome, Holding, Idea, IdeaReject, Instrument, LessonDraft, MarketScanResult, Order, PMDecision,
-    Proposal, ProposalReject, ReviewRequest, ReviewResult,
+    DecisionOutcome, Holding, IdeaReject, Instrument, LessonDraft, MarketScanResult, Order, PMDecision,
+    Proposal, ProposalReject, ReviewRequest, ReviewResult, parse_idea,
 )
 from auxin_schemas.knowledge import DecisionKind, DecisionRecord, Lesson
 from auxin_schemas.metadata import MessageType
@@ -132,7 +132,7 @@ async def _portfolio(conid: int) -> dict:
 
 
 def portfolio_manager(desc: AgentDescriptor, agent_dir: Path) -> Handler:
-    """idea (from Research): deterministic pre-gate -> challenge and investment judgement (LLM: REJECT, or BUY with
+    """idea (from Research, or entered by hand on the dashboard): deterministic pre-gate -> challenge and investment judgement (LLM: REJECT, or BUY with
     the proposal it built) -> deterministic rule gate and sizing -> order to Execution."""
     require_subscription_auth()
     options = build_options(desc, agent_dir, PMDecision.model_json_schema())
@@ -141,7 +141,7 @@ def portfolio_manager(desc: AgentDescriptor, agent_dir: Path) -> Handler:
     async def handle(msg: Incoming) -> dict:
         if msg.meta.type == MessageType.REVIEW_TRIGGER:
             return await daily_review(desc, msg)
-        idea = Idea.model_validate(msg.payload)
+        idea = parse_idea(msg.payload)
 
         async def reject_idea(reason: str, rule: str | None, payload: dict, snapshot: dict | None = None) -> None:
             body = IdeaReject(idea_id=idea.idea_id, reason=reason)

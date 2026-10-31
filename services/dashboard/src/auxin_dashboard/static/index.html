@@ -24,6 +24,16 @@
                border-radius: 6px; cursor: pointer; font: inherit; }
   nav button.on { color: var(--text); border-color: var(--line); background: var(--bg); }
   #scan { margin-left: auto; }
+  dialog { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+           padding: 16px; width: min(560px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgba(0, 0, 0, .4); }
+  dialog h2 { font-size: 16px; margin: 0 0 4px; }
+  dialog label { display: block; margin-top: 10px; font-weight: 600; }
+  dialog label span { font-weight: 400; color: var(--muted); }
+  dialog input, dialog textarea { display: block; width: 100%; font: inherit; padding: 6px 8px; margin-top: 4px;
+           border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); }
+  dialog .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  dialog .msg { margin-top: 10px; min-height: 1.4em; }
   button.primary { border-color: var(--accent); color: var(--accent); font-weight: 600; }
   .agents { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin: 12px 0; }
   .agent { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
@@ -109,8 +119,26 @@
     <button data-tab="outcomes">Eredmények</button>
   </nav>
   <button id="scan" class="small primary">▶ Ötletgenerálás</button>
+  <button id="idea-add" class="small primary">＋ Saját ötlet</button>
   <button id="refresh" class="small">Frissítés</button>
 </header>
+<dialog id="idea-dlg">
+  <form method="dialog" id="idea-form">
+    <h2>Saját befektetési ötlet</h2>
+    <p class="muted" style="margin:0">A Portfolio Manager ugyanúgy challenge-eli, mint a Research ötleteit (előszűrés, portfólió-illeszkedés, kutatás, szabálykapu). Az ötletgazda tézise nem bizonyíték: a PM el is utasíthatja.</p>
+    <label>Ticker <span>(pl. NVDA; az IBKR-ben feloldjuk)</span>
+      <input name="symbol" required maxlength="20" autocomplete="off" autocapitalize="characters"></label>
+    <label>Tézis <span>(miért vennénk?)</span>
+      <textarea name="thesis" required rows="3" maxlength="2000"></textarea></label>
+    <label>Háttér, források <span>(opcionális: linkek, adatok, katalizátor)</span>
+      <textarea name="rationale" rows="4" maxlength="4000"></textarea></label>
+    <div class="msg" id="idea-msg"></div>
+    <div class="actions">
+      <button type="button" class="small" id="idea-cancel">Mégse</button>
+      <button type="submit" class="small primary" id="idea-send">Elküldés a PM-nek</button>
+    </div>
+  </form>
+</dialog>
 <main id="view"></main>
 <script>
 const $view = document.getElementById("view");
@@ -182,7 +210,7 @@ const FUNNEL = [
   ["ex_rej", 3, "Execution: elutasítva", "warn"], ["pending", 3, "Függő megbízás", ""], ["fill", 3, "Kötés (fill)", "good"],
   ["open_pos", 4, "Nyitott pozíció", "good"], ["closed", 4, "Lezárva", ""],
 ];
-const STAGES = ["Research", "Challenge, döntés", "Szabálykapu", "Execution", "Pozíció"];
+const STAGES = ["Ötlet", "Challenge, döntés", "Szabálykapu", "Execution", "Pozíció"];
 
 function ideaPath(r) {
   const k = new Set(r.kinds || []), p = ["gen"];
@@ -237,7 +265,7 @@ function funnelSvg(all, active) {
   return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Ötletek útja">${svg}</svg>`;
 }
 
-const ROLE_ORDER = ["Market & Sentiment", "Research", "Portfolio Manager", "Szabálykapu", "Execution", "Kiértékelő"];
+const ROLE_ORDER = ["Kézi ötlet", "Market & Sentiment", "Research", "Portfolio Manager", "Szabálykapu", "Execution", "Kiértékelő"];
 
 function ideaGraphSvg(ev, sel, upto) {
   const lanes = ROLE_ORDER.filter(r => ev.some(e => e.role === r));
@@ -309,6 +337,31 @@ async function startScan() {
   const d = body.detail || {};
   if (r.status === 409 && d.trace_id) { alert("Már fut egy scan, megnyitom."); return go(`live/${d.trace_id}`); }
   alert(`Nem indult el: ${d.message || d || r.status}`);
+}
+
+const $ideaDlg = document.getElementById("idea-dlg"), $ideaForm = document.getElementById("idea-form"),
+  $ideaMsg = document.getElementById("idea-msg"), $ideaSend = document.getElementById("idea-send");
+
+async function sendIdea(ev) {
+  ev.preventDefault();
+  const f = new FormData($ideaForm), symbol = f.get("symbol").trim().toUpperCase();
+  if (!confirm(`Elküldjem a ${symbol} ötletet a Portfolio Managernek a PAPER számlán?\n\n` +
+      "Végigmegy a vételi folyamaton: PM challenge → szabálykapu → Execution. " +
+      "Ebből valódi paper megbízás és kötés lehet; zárt piacnál a megbízás függő marad. " +
+      "A PM (Opus) kutatása LLM-költséggel jár.")) return;
+  $ideaSend.disabled = true;
+  $ideaMsg.textContent = "Feloldás az IBKR-ben, küldés…";
+  try {
+    const r = await fetch("/api/ideas", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({symbol, thesis: f.get("thesis").trim(), rationale: f.get("rationale").trim()})});
+    const body = await r.json().catch(() => ({}));
+    if (r.ok) { $ideaDlg.close(); $ideaForm.reset(); return go(`live/${body.trace_id}`); }
+    const d = body.detail || {};
+    if (r.status === 409 && d.trace_id) { $ideaDlg.close(); alert("Már fut egy folyamat, megnyitom."); return go(`live/${d.trace_id}`); }
+    $ideaMsg.innerHTML = `<span class="bad">Nem indult el: ${esc(d.message || (typeof d === "string" ? d : r.status))}</span>`;
+  } catch (e) {
+    $ideaMsg.innerHTML = `<span class="bad">${esc(e.message)}</span>`;
+  } finally { $ideaSend.disabled = false; }
 }
 
 let liveTimer = null;
@@ -645,6 +698,9 @@ async function render() {
 document.querySelectorAll("#tabs button").forEach(b => b.addEventListener("click", () => go(b.dataset.tab)));
 document.getElementById("refresh").addEventListener("click", render);
 document.getElementById("scan").addEventListener("click", startScan);
+document.getElementById("idea-add").addEventListener("click", () => { $ideaMsg.textContent = ""; $ideaDlg.showModal(); });
+document.getElementById("idea-cancel").addEventListener("click", () => $ideaDlg.close());
+$ideaForm.addEventListener("submit", sendIdea);
 window.addEventListener("hashchange", render);
 render();
 </script>

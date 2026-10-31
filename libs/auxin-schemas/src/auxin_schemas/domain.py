@@ -53,6 +53,21 @@ class Idea(_Model):
     created_at: datetime = Field(default_factory=_now)
 
 
+class ManualIdea(Idea):
+    """An idea entered by hand on the dashboard (2026-10-31). It goes to the Portfolio Manager exactly like a Research
+    idea and gets the same challenge; only the evidence requirements differ: sources and the background are optional
+    (the PM does its own research), and `origin` tells the two apart in the decision log."""
+
+    origin: Literal["manual"] = "manual"
+    rationale: str = ""
+    sources: list[Source] = Field(default_factory=list)
+
+
+def parse_idea(payload: dict) -> Idea:
+    """The `idea` message body: a Research idea, or a manual one (`origin: manual`)."""
+    return ManualIdea.model_validate(payload) if payload.get("origin") == "manual" else Idea.model_validate(payload)
+
+
 class MarketView(_Model):
     summary: str = Field(min_length=1)
     sentiment: Literal["risk_on", "neutral", "risk_off"]
