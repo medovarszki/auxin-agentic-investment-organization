@@ -602,7 +602,8 @@ const views = {
             tick();
           }));
         }
-        const rows = d.activity.filter(a => !filter || agentRole[a.agent] === filter).slice().reverse();
+        // failed tool results (the agent retries or moves on) are noise in the live feed; a failed task stays visible
+        const rows = d.activity.filter(a => (!filter || agentRole[a.agent] === filter) && !(a.kind === "tool_result" && a.is_error)).slice().reverse();
         const working = new Set(d.tasks.filter(t => ["SUBMITTED", "WORKING"].includes(t.state)).map(t => t.agent));
         const current = new Set(rows.filter(a => working.has(a.agent) && a.kind !== "task_finished")
           .map(a => a.agent).map(agent => rows.find(a => a.agent === agent)));
