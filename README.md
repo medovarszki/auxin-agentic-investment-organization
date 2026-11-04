@@ -50,7 +50,7 @@ make egress-test           # example.com tiltva, api.anthropic.com átmegy
 
 | Felület | Cím | Mire való |
 |---|---|---|
-| **Dashboard** | <http://localhost:8080> | portfólió élőben (NAV, cash, pozíciók, súly, P&L, utolsó review); **▶ Ötletgenerálás** gomb (egy `scan_trigger` a Researchnek, csak PAPER számlán, egyszerre egy), **＋ Saját ötlet** (kézi ötlet: ticker + tézis, opcionálisan háttér; a dashboard feloldja az IBKR conidra, a döntési naplóba írja `Kézi ötlet` szereppel, majd `idea`-ként a PM-nek küldi, aki ugyanúgy challenge-eli, mint a Research ötleteit; PAPER, egyszerre egy folyamat) és **élő nézet**: agentenként mit csinál éppen az LLM (keresések, tool-hívások és eredményeik, köztes szöveg, az `agent_activity` táblából), a döntések szerepkör-sávos gráfon, ahogy születnek; ötletmenedzser (minden generált ötlet, elfogadott / elutasított / folyamatban szűrővel, kattintható folyam-diagrammal; ötletenként a teljes history lejátszható gráfon és szerepkörök szerint); folyamatok trace szerint, döntési napló szűrővel, taszkok, lezárt pozíciók és tanulságok. Két írási művelete a scan és a kézi ötlet indítása (a döntési naplóba a knowledge REST-en át ír), a DB-t csak olvassa |
+| **Dashboard** | <http://localhost:8080> | portfólió élőben (NAV, cash, pozíciók, súly, P&L, utolsó review); **▶ Ötletgenerálás** gomb (egy `scan_trigger` a Researchnek, csak PAPER számlán, egyszerre egy), **＋ Saját ötlet** (kézi ötlet: ticker + tézis, opcionálisan háttér; a dashboard feloldja az IBKR conidra, a döntési naplóba írja `Kézi` szereppel, majd `idea`-ként a PM-nek küldi, aki ugyanúgy challenge-eli, mint a Research ötleteit; PAPER, egyszerre egy folyamat) **Kézi review** (pozíciónként a portfólió nézetben: REDUCE célsúllyal vagy CLOSE, indoklással; a döntési naplóba `review`-ként kerül `Kézi` szereppel, majd `review_result`-ként a PM-nek megy, aki a szokásos determinisztikus méretezéssel `SELL` megbízást ad az Executionnek, LLM nélkül; PAPER, egyszerre egy folyamat; a lezárás után a `make run-job job=evaluate` tanulságot csinál) és **élő nézet**: agentenként mit csinál éppen az LLM (keresések, tool-hívások és eredményeik, köztes szöveg, az `agent_activity` táblából), a döntések szerepkör-sávos gráfon, ahogy születnek; ötletmenedzser (minden generált ötlet, elfogadott / elutasított / folyamatban szűrővel, kattintható folyam-diagrammal; ötletenként a teljes history lejátszható gráfon és szerepkörök szerint); folyamatok trace szerint, döntési napló szűrővel, taszkok, lezárt pozíciók és tanulságok. Három írási művelete a scan, a kézi ötlet és a kézi review indítása (a döntési naplóba a knowledge REST-en át ír), a DB-t csak olvassa |
 | **Jaeger** | <http://localhost:16686> | trace-ek: A2A-hívások, `invoke_agent` (modell, tokenek, turnök), `execute_tool` (WebSearch, MCP), HTTP. A dashboard minden folyamatnál Jaeger-linket ad (ugyanaz a `trace_id`) |
 | CLI | `make tasks`, `make decisions`, `make logs` | a task tábla, a döntési napló és a JSON-naplók a terminálban |
 
@@ -99,7 +99,7 @@ flowchart LR
     ib(["IBKR paper számla"])
 
     user --> dashboard & jaeger
-    dashboard -- "A2A idea (kézi ötlet)" --> pm
+    dashboard -- "A2A idea / review_result (kézi)" --> pm
     dashboard -- "REST (kézi ötlet)" --> knowledge
     user -. make .-> operator
     scheduler -- A2A --> research & pm

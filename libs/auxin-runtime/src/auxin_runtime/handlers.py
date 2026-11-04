@@ -141,6 +141,8 @@ def portfolio_manager(desc: AgentDescriptor, agent_dir: Path) -> Handler:
     async def handle(msg: Incoming) -> dict:
         if msg.meta.type == MessageType.REVIEW_TRIGGER:
             return await daily_review(desc, msg)
+        if msg.meta.type == MessageType.REVIEW_RESULT:
+            return await manual_review(desc, msg)
         idea = parse_idea(msg.payload)
 
         async def reject_idea(reason: str, rule: str | None, payload: dict, snapshot: dict | None = None) -> None:
@@ -269,6 +271,43 @@ async def _entry(conid: int) -> dict | None:
                                 "sizing": order["payload"].get("sizing")}}
 
 
+async def _sell_after_review(desc: AgentDescriptor, msg: Incoming, review: ReviewResult, holding: Holding,
+                             account: dict, holdings: list[Holding], send_ctx: dict) -> dict:
+    """REDUCE / CLOSE -> deterministic SELL sizing -> order record -> Execution (HOLD / no room: no order)."""
+    inst, nav = holding.instrument, float(account["net_liquidation"])
+    quantity, sizing = size_sell(review, holding, nav=nav, price=holding.market_price)
+    item = {"recommendation": review.recommendation, "sizing": sizing}
+    if quantity < 1:
+        return item
+    order = Order(decision_id=uuid.uuid4(), instrument=inst, side="SELL", quantity=quantity)
+    await record_decision(DecisionRecord(
+        id=order.order_id, kind=DecisionKind.ORDER, agent=desc.name, decision_id=order.decision_id,
+        summary=f"SELL {quantity} {inst.symbol} (~{sizing['order_value']} {inst.currency}, {review.recommendation}): "
+                f"{review.rationale}",
+        conid=inst.conid, symbol=inst.symbol,
+        payload={"order": order.model_dump(mode="json"), "review": review.model_dump(mode="json"),
+                 "sizing": sizing},
+        snapshot={"account": account, "holdings": [h.model_dump(mode="json") for h in holdings]}, **_ctx(msg)))
+    item["execution"] = task_summary(await send(
+        sender=desc.name, recipient="execution", type=MessageType.ORDER,
+        subject=f"Order: SELL {quantity} {inst.symbol}", payload=order.model_dump(mode="json"), **send_ctx))
+    return item
+
+
+async def manual_review(desc: AgentDescriptor, msg: Incoming) -> dict:
+    """review_result entered by hand on the dashboard (already in the decision log as a `review`): the same
+    deterministic SELL sizing and order as after Research's review, for the one position. No LLM call."""
+    review = ReviewResult.model_validate(msg.payload)
+    account, holdings = await _holdings()
+    holding = next((h for h in holdings if h.instrument.conid == review.conid), None)
+    if holding is None:
+        raise Rejected(f"no open position with conid {review.conid}")
+    send_ctx = {"task_id": msg.task_id, "correlation_id": msg.meta.correlation_id, "trace_id": msg.meta.trace_id,
+                "reference_task_ids": [msg.task_id]}
+    return {"symbol": holding.instrument.symbol, "weight_pct": holding.weight_pct,
+            **await _sell_after_review(desc, msg, review, holding, account, holdings, send_ctx)}
+
+
 async def daily_review(desc: AgentDescriptor, msg: Incoming) -> dict:
     """review_trigger (15:30): place the pending orders, then one Research review per open position, one after
     the other; REDUCE / CLOSE -> deterministic SELL sizing -> order to Execution (decision 6.4: no PM LLM call)."""
@@ -291,22 +330,7 @@ async def daily_review(desc: AgentDescriptor, msg: Incoming) -> dict:
         if task["state"] != "TASK_STATE_COMPLETED" or not task["artifacts"]:
             continue  # a failed review leaves the position as it is; the task store has the error
         review = ReviewResult.model_validate(task["artifacts"][0]["review"])
-        quantity, sizing = size_sell(review, holding, nav=nav, price=holding.market_price)
-        item |= {"recommendation": review.recommendation, "sizing": sizing}
-        if quantity < 1:
-            continue
-        order = Order(decision_id=uuid.uuid4(), instrument=inst, side="SELL", quantity=quantity)
-        await record_decision(DecisionRecord(
-            id=order.order_id, kind=DecisionKind.ORDER, agent=desc.name, decision_id=order.decision_id,
-            summary=f"SELL {quantity} {inst.symbol} (~{sizing['order_value']} {inst.currency}, {review.recommendation}): "
-                    f"{review.rationale}",
-            conid=inst.conid, symbol=inst.symbol,
-            payload={"order": order.model_dump(mode="json"), "review": review.model_dump(mode="json"),
-                     "sizing": sizing},
-            snapshot={"account": account, "holdings": [h.model_dump(mode="json") for h in holdings]}, **_ctx(msg)))
-        item["execution"] = task_summary(await send(
-            sender=desc.name, recipient="execution", type=MessageType.ORDER,
-            subject=f"Order: SELL {quantity} {inst.symbol}", payload=order.model_dump(mode="json"), **send_ctx))
+        item |= await _sell_after_review(desc, msg, review, holding, account, holdings, send_ctx)
     return {"execute_pending": pending, "nav": nav, "positions": results}
 
 

@@ -13,6 +13,7 @@ import logging
 import os
 import uuid
 from pathlib import Path
+from typing import Literal
 
 import httpx
 import uvicorn
@@ -26,7 +27,7 @@ from auxin_a2a.client import new_trace_id, send, task_summary
 from auxin_a2a.store import database_url
 from auxin_runtime.ibkr import read_tools
 from auxin_runtime.knowledge import record_decision
-from auxin_schemas.domain import InstrumentRef, ManualIdea
+from auxin_schemas.domain import InstrumentRef, ManualIdea, ReviewResult
 from auxin_schemas.knowledge import DecisionKind, DecisionRecord
 from auxin_schemas.metadata import MessageType
 
@@ -183,7 +184,7 @@ async def decisions(kind: str | None = None, symbol: str | None = None, limit: i
 
 REJECT_KINDS = ("idea_reject", "proposal_reject", "order_reject")
 MANUAL_AGENT = "dashboard"  # the `agent` of a manually entered idea's decision-log row
-MANUAL_ROLE = "Kézi ötlet"
+MANUAL_ROLE = "Kézi"
 AGENT_ROLES = {MANUAL_AGENT: MANUAL_ROLE, "research": "Research", "market-sentiment": "Market & Sentiment", "portfolio-manager": "Portfolio Manager",
                "execution": "Execution", "scheduler": "Kiértékelő"}
 
@@ -411,6 +412,48 @@ async def add_idea(body: ManualIdeaIn) -> dict:
                          "symbol": idea.instrument.symbol, "conid": idea.instrument.conid,
                          "account": account.get("account")}))
     return {"trace_id": trace_id, "idea_id": str(idea.idea_id), "instrument": payload["instrument"]}
+
+
+class ManualReviewIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    recommendation: Literal["REDUCE", "CLOSE"]
+    target_weight_pct: float | None = Field(default=None, ge=0, le=100)  # REDUCE: the weight to go down to
+    rationale: str = Field(min_length=1, max_length=4000)
+
+
+@app.post("/api/positions/{conid}/review", status_code=202)
+async def manual_review(conid: int, body: ManualReviewIn) -> dict:
+    """A manual review of an open position (REDUCE / CLOSE with a rationale): recorded in the decision log as a
+    `review` (agent `dashboard`), then sent to the Portfolio Manager as a `review_result`, which sizes the SELL
+    deterministically and hands the order to Execution, like after Research's review. PAPER only, one flow at a time."""
+    account = await _paper_account()
+    await _require_idle("scan_trigger", "idea", "review_trigger", "review_result")
+    try:
+        (positions,) = await read_tools([("get_positions", {})])
+    except Exception as exc:  # noqa: BLE001 - broker down: no review
+        raise HTTPException(503, f"broker not reachable: {type(exc).__name__}: {exc}") from None
+    position = next((p for p in positions if int(p["conid"]) == conid and float(p.get("quantity") or 0) > 0), None)
+    if not position:
+        raise HTTPException(422, {"message": f"no open position with conid {conid}"})
+    try:
+        review = ReviewResult(conid=conid, recommendation=body.recommendation, rationale=body.rationale.strip(),
+                              target_weight_pct=body.target_weight_pct if body.recommendation == "REDUCE" else None)
+    except ValueError:
+        raise HTTPException(422, {"message": "REDUCE needs a target weight (%)"}) from None
+    flow_id, trace_id = str(uuid.uuid4()), new_trace_id()
+    payload = review.model_dump(mode="json")
+    await record_decision(DecisionRecord(
+        id=uuid.uuid4(), kind=DecisionKind.REVIEW, agent=MANUAL_AGENT,
+        summary=f"{review.recommendation}{f' to {review.target_weight_pct:g}%' if review.target_weight_pct is not None else ''}: "
+                f"{review.rationale}",
+        conid=conid, symbol=position["symbol"], payload=payload,
+        correlation_id=flow_id, trace_id=trace_id, task_id=flow_id))
+    _start_flow("manual_review", flow_id, trace_id, recipient="portfolio-manager", type=MessageType.REVIEW_RESULT,
+                subject=f"Review: {position['symbol']} {review.recommendation} (manual)", payload=payload)
+    log.info(json.dumps({"event": "manual_review_started", "trace_id": trace_id, "symbol": position["symbol"],
+                         "conid": conid, "recommendation": review.recommendation, "account": account.get("account")}))
+    return {"trace_id": trace_id}
 
 
 @app.get("/api/live/{trace_id}")
