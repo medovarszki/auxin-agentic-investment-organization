@@ -59,7 +59,7 @@ Mindkét webes felület csak a `127.0.0.1`-re publikál, authentikáció nincs. 
 | Belső végpont | Hálózat | Ki hívja |
 |---|---|---|
 | `http://<agent>:8000` (A2A JSON-RPC + SSE, Agent Card) | `agents` | agentek, scheduler, operator |
-| `http://knowledge:8000` (REST írás, `/mcp` olvasás) | `agents` | runtime, Execution, scheduler, dashboard (kézi ötlet) / LLM-agentek |
+| `http://knowledge:8000` (REST írás, `/mcp` olvasás) | `agents` | runtime, Execution, scheduler, dashboard (kézi ötlet, kézi review) / LLM-agentek |
 | `http://mcp-ibkr:8000/mcp` (csak olvasó IBKR-toolok) | `agents`, `ibkr-backend` | LLM-agentek, PM-kapu, dashboard |
 | `http://ibkrfacade:8082/ibkr` (REST, írás is) | `ibkr-backend` | csak az MCP szerver és az Execution |
 | `postgres:5432` | `agents` | A2A task store, tudásbázis, dashboard (read-only session) |
@@ -100,7 +100,7 @@ flowchart LR
 
     user --> dashboard & jaeger
     dashboard -- "A2A idea / review_result (kézi)" --> pm
-    dashboard -- "REST (kézi ötlet)" --> knowledge
+    dashboard -- "REST (kézi ötlet, kézi review)" --> knowledge
     user -. make .-> operator
     scheduler -- A2A --> research & pm
     operator -- A2A --> research & pm
@@ -165,7 +165,7 @@ classDiagram
         kapu: size_buy (portfolio-rules.yaml)
         review: size_sell (LLM nélkül)
         tool: WebSearch, WebFetch, IBKR MCP, knowledge MCP
-        fogad: idea (Researchtől vagy kézi, a dashboardról), review_trigger
+        fogad: idea (Researchtől vagy kézi, a dashboardról), review_trigger, review_result (kézi review, a dashboardról)
         küld: order, idea_reject, proposal_reject, review_request, execute_pending
     }
 
@@ -291,6 +291,33 @@ sequenceDiagram
     end
 ```
 
+### Kézi review (dashboard, bármikor)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as user
+    participant D as dashboard
+    participant IB as IBKR (MCP / facade)
+    participant KB as knowledge
+    participant PM as Portfolio Manager
+    participant E as Execution
+
+    U->>D: Kézi review: REDUCE (célsúly) vagy CLOSE + indoklás
+    D->>IB: PAPER számla és nyitott pozíció ellenőrzése
+    D-->>KB: review (agent: dashboard, szerep: Kézi)
+    D->>PM: review_result
+    PM->>IB: számla, pozíciók (MCP)
+    PM->>PM: size_sell (LLM nélkül)
+    alt van eladandó mennyiség
+        PM-->>KB: SELL order
+        PM->>E: order
+        E->>IB: POST /order (SELL ≤ tartott)
+        E-->>KB: fill / order_reject
+    end
+    Note over PM,E: a lezárás után a 21:00-s (vagy kézi) evaluate<br/>decision_outcome-ot és tanulságot csinál
+```
+
 ### Feedback (munkanapokon 21:00)
 
 ```mermaid
@@ -320,7 +347,7 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 | Pozíció | Típus | Állapot | Felelősség | Fogad | Küld |
 |---|---|---|---|---|---|
 | **Research** | LLM-agent (2026-10-26 óta egy agent, a korábbi Market & Sentimenttel) | működik | **Ötletek:** napi piaci összkép, sentiment, narratíva; legfeljebb 3 ötlet IBKR conidra oldva, a PM-nek; kihagyja, ami a portfólióban van vagy 30 napon belül elutasított; nem challenge-el, célárat nem ad. **Review:** napi pozíció-újraértékelés (`position-review`: HOLD / REDUCE cél-súllyal / CLOSE). **Tanulság** a lezárt pozíciókból (`lesson`, a runtime írja a `lessons` táblába) | `scan_trigger`, `review_request`, `decision_outcome` | `idea`, `review_result`, `lesson` |
-| **Portfolio Manager** | LLM-agent + determinisztikus elő- és szabálykapu | működik | a Research ötleteit a portfólió ismeretében validálja és challenge-eli (`idea-challenge`, 2026-10-26 óta): determinisztikus előszűrés LLM előtt (eszközosztály, bázisdeviza, már tartott), majd először a portfólió-illeszkedés (cash, ugyanaz a fogadás, kockázati bucket helye, emlékezet), csak utána a teljes kutatás (web, IBKR, tudásbázis); BUY saját javaslattal (célár, horizont, ≥3 kockázat, ≥3 datált forrás, conviction 1–5) vagy REJECT; kockázati bucketbe (1–4) sorol (`risk-bucket`); a runtime ellenőrzi a szabályokat és méretez (zárt piacnál az utolsó záróárral); napi review: a runtime a Research javaslatát LLM nélkül hajtja végre (REDUCE / CLOSE → SELL) | `idea` (Researchtől, vagy kézi ötletként a dashboardról: `origin: manual`), `review_trigger` | `order`, `idea_reject`, `proposal_reject`, `review_request`, `execute_pending` |
+| **Portfolio Manager** | LLM-agent + determinisztikus elő- és szabálykapu | működik | a Research ötleteit a portfólió ismeretében validálja és challenge-eli (`idea-challenge`, 2026-10-26 óta): determinisztikus előszűrés LLM előtt (eszközosztály, bázisdeviza, már tartott), majd először a portfólió-illeszkedés (cash, ugyanaz a fogadás, kockázati bucket helye, emlékezet), csak utána a teljes kutatás (web, IBKR, tudásbázis); BUY saját javaslattal (célár, horizont, ≥3 kockázat, ≥3 datált forrás, conviction 1–5) vagy REJECT; kockázati bucketbe (1–4) sorol (`risk-bucket`); a runtime ellenőrzi a szabályokat és méretez (zárt piacnál az utolsó záróárral); napi review: a runtime a Research javaslatát LLM nélkül hajtja végre (REDUCE / CLOSE → SELL); kézi review (`review_result` a dashboardról): ugyanaz a méretezés és megbízás egy pozícióra, LLM nélkül | `idea` (Researchtől, vagy kézi ötletként a dashboardról: `origin: manual`), `review_trigger`, `review_result` (kézi) | `order`, `idea_reject`, `proposal_reject`, `review_request`, `execute_pending` |
 | **Execution** | determinisztikus service | működik | ellenőrzés (paper számla, egyezés a PM döntésével a naplóban, SELL ≤ tartott mennyiség, friss ár), megbízás csak kereskedési időben (zárt piacnál függő, a 15:30-as review adja le), market / DAY, idempotens (`client_order_id = decision_id`); az egyetlen IBKR írási joggal | `order`, `execute_pending` | `fill`, `order_reject` |
 
 ### Támogató szolgáltatások (nem szerepek)
@@ -332,7 +359,7 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 | ibkrfacade (külön repó) | működik | REST az IB Gateway fölött; paper/live védelem, idempotens order |
 | `services/scheduler` | működik | munkanapokon (hétfő–péntek, Europe/Budapest) 09:00 scan, 15:30 review, 21:00 kiértékelés; kézzel: `make run-job job=...`, a scan a dashboardról is (▶ Ötletgenerálás) |
 | döntés-kiértékelő (a scheduler `evaluate` jobja) | működik | a lezárt pozíciók realizált hozama a fill-ekből (benchmark nélkül) → `decision_outcome` a naplóba és a Researchnek |
-| `services/dashboard` | működik | `localhost:8080`, lásd [Felületek](#felületek); kézi ötlet: feloldás (IBKR MCP), döntési napló (knowledge REST), `idea` a PM-nek |
+| `services/dashboard` | működik | `localhost:8080`, lásd [Felületek](#felületek); kézi ötlet: feloldás (IBKR MCP), döntési napló (knowledge REST), `idea` a PM-nek; kézi review: pozíció-ellenőrzés (IBKR MCP), `review` a döntési naplóba, `review_result` a PM-nek |
 | Jaeger (trace) | működik | `localhost:16686`, memóriában (restartkor elvész; az audit a Postgres) |
 
 ### Befektetési szabályok (röviden)
