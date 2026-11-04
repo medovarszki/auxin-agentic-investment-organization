@@ -8,6 +8,44 @@ Az Auxin egy **kizárólag agentekből álló, virtuális befektetési alapkezel
 - A döntések közös tudásbázisba íródnak, a későbbi tanulási ciklusok lehetősége miatt.
 - A portfóliót jelenleg egyetlen Interactive Brokers **paper** számla reprezentálja.
 
+## Struktúra
+
+| Könyvtár | Mi van benne |
+|---|---|
+| `org/` | A szervezet deklaratív leírása (`org.yaml`), a befektetési szabályok és az agent-leírók sémája |
+| `agents/` | 1 könyvtár = 1 szerep = 1 container: `agent.yaml`, `CLAUDE.md`, saját `skills/`, `Dockerfile` (az Execution determinisztikus, ugyanazzal a runtime-mal) |
+| `libs/` | Importált Python kód: sémák és szabályok (`auxin-schemas`), A2A-réteg és tracing (`auxin-a2a`), agent runtime (`auxin-runtime`) |
+| `mcp-servers/` | Saját MCP szerverek (IBKR) |
+| `services/` | Futó, nem-agent containerek (tudásbázis, scheduler a döntés-kiértékelővel, dashboard) |
+| `infra/` | Compose (Jaeger is), egress proxy és allowlist |
+| `docs/` | szervezeti terv, feladatmodell |
+
+## Futtatás
+
+Előfeltétel: Docker CE, `make`, `uv`, a repó mellett az [ibkrfacade](https://github.com/medovarszki/ibkrfacade) checkoutja a saját `.env`-jével (`IBKRFACADE_DIR`, alapérték `../ibkrfacade`), és a gyökérben kitöltött `.env` (lásd `.env.example`: `CLAUDE_CODE_OAUTH_TOKEN`, `POSTGRES_PASSWORD`; `ANTHROPIC_API_KEY` ne legyen beállítva).
+
+```
+make build && make up      # broker stack, Postgres, tudásbázis, agentek, scheduler, Jaeger, dashboard
+make ui                    # dashboard: http://localhost:8080, Jaeger: http://localhost:16686
+make down                  # az Auxin leállítása (a broker stacké: make ibkr-down)
+```
+
+Kézi indítás és ellenőrzés:
+
+```
+make scan                  # egy napi scan (vételi hurok); ugyanez a dashboardon: ▶ Ötletgenerálás, élő nézettel
+make review                # napi review (függő megbízások, pozíciónkénti újraértékelés, eladás)
+make run-job job=evaluate  # egy scheduler-job most (scan | review | evaluate)
+make execute-pending       # zárt piac miatt függő megbízások leadása
+make tasks                 # a közös task tábla
+make decisions             # a döntési napló
+make logs                  # JSON-naplók
+make ibkr-check            # broker: health, paper számla, egy ár (megbízás nélkül)
+make mcp-check             # IBKR MCP toolok (megbízás nélkül)
+make kb-check              # tudásbázis: REST, MCP, keresés
+make egress-test           # example.com tiltva, api.anthropic.com átmegy
+```
+
 ## Felületek
 
 | Felület | Cím | Mire való |
@@ -277,16 +315,6 @@ sequenceDiagram
 
 Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: [`org/org.yaml`](org/org.yaml) (egységek, pozíciók, jelentési vonalak), [`org/rules/portfolio-rules.yaml`](org/rules/portfolio-rules.yaml) (befektetési szabályok), `agents/<név>/agent.yaml` (szerepenkénti leíró). Az eredeti, 1. fázisbeli terv: [`docs/ORG.md`](docs/ORG.md).
 
-### Egységek
-
-| Egység | Állapot | Pozíciók |
-|---|---|---|
-| **Core** (befektetési egység) | működik (vétel, napi review és eladás, ütemezés, tanulság) | Research, Portfolio Manager, Execution |
-| Risk | tervezett | független kockázatkezelés, limitfelügyelet |
-| Compliance | tervezett | szabálymegfelelés, audit |
-| Operations | tervezett | elszámolás, egyeztetés a brokerrel |
-| Reporting | részben (7.: dashboard, trace) | teljesítményjelentések; a dashboard és a Jaeger támogató szolgáltatás, nem szerep |
-
 ### Pozíciók
 
 | Pozíció | Típus | Állapot | Felelősség | Fogad | Küld |
@@ -329,40 +357,3 @@ Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: 
 | PM szabálykapu (determinisztikus) | a PM döntését | `portfolio-rules.yaml`: upside, pozíció-, szektor-, bucketlimit, szabad cash; bázisdeviza, már tartott pozíció |
 | Execution (determinisztikus) | megbízást | nem paper számla, eltér a PM döntésétől, SELL több a tartottnál, nincs friss ár |
 
-## Struktúra
-
-| Könyvtár | Mi van benne |
-|---|---|
-| `org/` | A szervezet deklaratív leírása (`org.yaml`), a befektetési szabályok és az agent-leírók sémája |
-| `agents/` | 1 könyvtár = 1 szerep = 1 container: `agent.yaml`, `CLAUDE.md`, saját `skills/`, `Dockerfile` (az Execution determinisztikus, ugyanazzal a runtime-mal) |
-| `libs/` | Importált Python kód: sémák és szabályok (`auxin-schemas`), A2A-réteg és tracing (`auxin-a2a`), agent runtime (`auxin-runtime`) |
-| `mcp-servers/` | Saját MCP szerverek (IBKR) |
-| `services/` | Futó, nem-agent containerek (tudásbázis, scheduler a döntés-kiértékelővel, dashboard) |
-| `infra/` | Compose (Jaeger is), egress proxy és allowlist |
-| `docs/` | szervezeti terv, feladatmodell |
-
-## Futtatás
-
-Előfeltétel: Docker CE, `make`, `uv`, a repó mellett az [ibkrfacade](https://github.com/medovarszki/ibkrfacade) checkoutja a saját `.env`-jével (`IBKRFACADE_DIR`, alapérték `../ibkrfacade`), és a gyökérben kitöltött `.env` (lásd `.env.example`: `CLAUDE_CODE_OAUTH_TOKEN`, `POSTGRES_PASSWORD`; `ANTHROPIC_API_KEY` ne legyen beállítva).
-
-```
-make build && make up      # broker stack, Postgres, tudásbázis, agentek, scheduler, Jaeger, dashboard
-make ui                    # dashboard: http://localhost:8080, Jaeger: http://localhost:16686
-make down                  # az Auxin leállítása (a broker stacké: make ibkr-down)
-```
-
-Kézi indítás és ellenőrzés:
-
-```
-make scan                  # egy napi scan (vételi hurok); ugyanez a dashboardon: ▶ Ötletgenerálás, élő nézettel
-make review                # napi review (függő megbízások, pozíciónkénti újraértékelés, eladás)
-make run-job job=evaluate  # egy scheduler-job most (scan | review | evaluate)
-make execute-pending       # zárt piac miatt függő megbízások leadása
-make tasks                 # a közös task tábla
-make decisions             # a döntési napló
-make logs                  # JSON-naplók
-make ibkr-check            # broker: health, paper számla, egy ár (megbízás nélkül)
-make mcp-check             # IBKR MCP toolok (megbízás nélkül)
-make kb-check              # tudásbázis: REST, MCP, keresés
-make egress-test           # example.com tiltva, api.anthropic.com átmegy
-```
