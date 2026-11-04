@@ -119,5 +119,6 @@ def build_options(
         cwd=workdir,
         max_turns=desc.limits.max_turns,
         max_budget_usd=desc.budget.per_run_usd,
+        thinking={"type": "adaptive", "display": "summarized"},  # the dashboard live view shows the reasoning
         output_format={"type": "json_schema", "schema": output_schema},
     )
