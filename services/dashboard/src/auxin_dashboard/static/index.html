@@ -123,7 +123,7 @@
     <button data-tab="outcomes">Eredmények</button>
   </nav>
   <button id="scan" class="small primary">▶ Ötletgenerálás</button>
-  <button id="review" class="small primary">▶ Pozíciók review</button>
+  <button id="review" class="small primary">🔍 Minden pozíció review</button>
   <button id="idea-add" class="small primary">＋ Saját ötlet</button>
   <button id="refresh" class="small">Frissítés</button>
 </header>
@@ -349,6 +349,24 @@ function actLine(a) {
   return esc(a.text);
 }
 
+// What started a flow: the first external task's sender (scheduler / CLI / dashboard) and type.
+const TRIGGERS = {
+  scan_trigger: "Ötletgenerálás (scan)", review_trigger: "Napi review", execute_pending: "Függő megbízások",
+  idea: "Ötlet a PM-nek", review_result: "Kézi döntés", decision_outcome: "Lezárt pozíció kiértékelése",
+};
+function triggerLabel(r) {
+  const type = TRIGGERS[r.trigger] || r.trigger || "ismeretlen";
+  if (r.sender === "scheduler") return {label: type, by: "ütemezett"};
+  if (r.sender === "operator") return {label: type, by: "kézi, CLI (make)"};
+  if (r.sender === "dashboard") {
+    if (r.trigger === "idea") return {label: "Saját ötlet", by: "kézi, dashboard"};
+    if (r.trigger === "review_trigger" && /, \d+\)/.test(r.trigger_subject || ""))
+      return {label: "Egy pozíció review-ja", by: "kézi, dashboard"};
+    return {label: r.trigger === "review_trigger" ? "Minden pozíció review" : type, by: "kézi, dashboard"};
+  }
+  return {label: type, by: r.sender ? `${r.sender} (régi folyamat)` : ""};
+}
+
 async function startFlow(url, question, running) {
   if (!confirm(question)) return;
   const r = await fetch(url, {method: "POST"});
@@ -365,10 +383,14 @@ const startScan = () => startFlow("/api/scan",
   "Ebből valódi paper megbízás és kötés lehet; zárt piacnál a megbízás függő marad. " +
   "Egy scan néhány perc, LLM-költsége nagyjából $1–3.", "Már fut egy scan, megnyitom.");
 const startReview = () => startFlow("/api/review",
-  "Indítsam most a nyitott pozíciók review-ját a PAPER számlán?\n\n" +
+  "Indítsam most MINDEN nyitott pozíció review-ját a PAPER számlán?\n\n" +
   "A Portfolio Manager előbb elküldi a függő megbízásokat, majd minden nyitott pozíciót átad a Research-nek. " +
   "REDUCE / CLOSE javaslatból azonnal SELL megbízás lesz (Execution), pozíciónként egy LLM-futással.",
   "Már fut egy folyamat, megnyitom.");
+const startPositionReview = (conid, symbol) => startFlow(`/api/review?conid=${conid}`,
+  `Indítsam a ${symbol} Research-review-ját a PAPER számlán?\n\n` +
+  "Csak ezt az egy pozíciót nézi át a Research (egy LLM-futás). REDUCE / CLOSE javaslatból azonnal SELL megbízás lesz; " +
+  "a függő megbízásokat nem indítja el.", "Már fut egy folyamat, megnyitom.");
 
 const $ideaDlg = document.getElementById("idea-dlg"), $ideaForm = document.getElementById("idea-form"),
   $ideaMsg = document.getElementById("idea-msg"), $ideaSend = document.getElementById("idea-send");
@@ -479,10 +501,15 @@ const views = {
       {h: "Utolsó review", f: r => r.last_review
         ? `<span class="tag">${esc(r.last_review.recommendation)}</span> <span class="muted">${time(r.last_review.created_at)}</span>`
         : `<span class="muted">–</span>`},
-      {h: "", f: r => `<button class="small" data-review="${esc(r.conid)}">Kézi review</button>`},
+      {h: "", f: r => `<button class="small" data-agent-review="${esc(r.conid)}">🔍 Review</button>
+        <button class="small" data-review="${esc(r.conid)}">Kézi döntés</button>`},
     ], p.positions);
     if (a.account) html += `<p class="muted">Számla: ${esc(a.account)}</p>`;
     $view.innerHTML = html;
+    $view.querySelectorAll("[data-agent-review]").forEach(btn => btn.addEventListener("click", () => {
+      const pos = p.positions.find(x => String(x.conid) === btn.dataset.agentReview);
+      startPositionReview(pos.conid, pos.symbol);
+    }));
     $view.querySelectorAll("[data-review]").forEach(btn => btn.addEventListener("click", () => {
       const pos = p.positions.find(x => String(x.conid) === btn.dataset.review);
       openReview(pos.conid, pos.symbol, pos.weight_pct);
@@ -493,7 +520,7 @@ const views = {
     const rows = await api("/api/flows");
     $view.innerHTML = table([
       {h: "Indult", f: r => time(r.started_at)},
-      {h: "Trigger", f: r => `${esc(r.trigger || "?")} <span class="muted">${esc(r.sender || "")}</span>`},
+      {h: "Trigger", f: r => { const t = triggerLabel(r); return `${esc(t.label)} <span class="muted">${esc(t.by)}</span>`; }},
       {h: "Taszk", num: 1, f: r => r.tasks},
       {h: "Állapot", f: r => r.failed ? `<span class="bad">${r.failed} FAILED</span>`
         : r.running ? `<span class="muted">${r.running} fut</span>` : `<span class="good">kész</span>`},

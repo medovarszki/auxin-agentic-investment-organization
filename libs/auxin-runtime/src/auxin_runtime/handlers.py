@@ -310,15 +310,21 @@ async def manual_review(desc: AgentDescriptor, msg: Incoming) -> dict:
 
 async def daily_review(desc: AgentDescriptor, msg: Incoming) -> dict:
     """review_trigger (15:30): place the pending orders, then one Research review per open position, one after
-    the other; REDUCE / CLOSE -> deterministic SELL sizing -> order to Execution (decision 6.4: no PM LLM call)."""
+    the other; REDUCE / CLOSE -> deterministic SELL sizing -> order to Execution (decision 6.4: no PM LLM call).
+    With `payload.conid` (manual trigger from the dashboard) only that one position is reviewed, and the pending
+    orders are left alone."""
+    only = msg.payload.get("conid")
     send_ctx = {"task_id": msg.task_id, "correlation_id": msg.meta.correlation_id, "trace_id": msg.meta.trace_id,
                 "reference_task_ids": [msg.task_id]}
-    pending = task_summary(await send(sender=desc.name, recipient="execution", type=MessageType.EXECUTE_PENDING,
-                                      subject="Execute pending orders (daily review)", payload={}, **send_ctx))
+    pending = None if only else task_summary(await send(
+        sender=desc.name, recipient="execution", type=MessageType.EXECUTE_PENDING,
+        subject="Execute pending orders (daily review)", payload={}, **send_ctx))
     account, holdings = await _holdings()
     nav = float(account["net_liquidation"])
     results = []
     for holding in holdings:
+        if only and holding.instrument.conid != int(only):
+            continue
         inst = holding.instrument
         request = ReviewRequest(holding=holding, entry=await _entry(inst.conid))
         task = task_summary(await send(

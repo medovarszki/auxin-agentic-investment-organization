@@ -144,10 +144,13 @@ async def flows(limit: int = 50) -> list[dict]:
         """WITH t AS (
              SELECT metadata->>'trace_id' AS trace_id, min(last_updated) AS started_at, max(last_updated) AS ended_at,
                     count(*) AS tasks,
-                    (array_agg(metadata->>'type' ORDER BY last_updated) FILTER (
-                        WHERE metadata->>'sender' IN ('scheduler', 'operator')))[1] AS trigger,
-                    (array_agg(metadata->>'sender' ORDER BY last_updated) FILTER (
-                        WHERE metadata->>'sender' IN ('scheduler', 'operator')))[1] AS sender,
+                    -- the trigger: the first task from outside the agents (scheduler / CLI / dashboard), else the first task
+                    (array_agg(metadata->>'type' ORDER BY (metadata->>'sender' IN ('scheduler', 'operator', 'dashboard')) DESC,
+                        last_updated))[1] AS trigger,
+                    (array_agg(metadata->>'sender' ORDER BY (metadata->>'sender' IN ('scheduler', 'operator', 'dashboard')) DESC,
+                        last_updated))[1] AS sender,
+                    (array_agg(metadata->>'subject' ORDER BY (metadata->>'sender' IN ('scheduler', 'operator', 'dashboard')) DESC,
+                        last_updated))[1] AS trigger_subject,
                     count(*) FILTER (WHERE status->>'state' LIKE '%FAILED') AS failed,
                     count(*) FILTER (WHERE status->>'state' ~ '(SUBMITTED|WORKING)$') AS running
              FROM a2a_tasks WHERE metadata->>'trace_id' IS NOT NULL GROUP BY 1
@@ -361,14 +364,16 @@ async def start_scan() -> dict:
 
 
 @app.post("/api/review", status_code=202)
-async def start_review() -> dict:
+async def start_review(conid: int | None = None) -> dict:
     """review_trigger -> Portfolio Manager (the daily review, now): pending orders first, then one Research review per
-    open position; REDUCE / CLOSE -> SELL sizing -> Execution. PAPER only, one flow at a time."""
+    open position; REDUCE / CLOSE -> SELL sizing -> Execution. With `conid`: only that position (and no pending
+    orders). PAPER only, one flow at a time."""
     account = await _paper_account()
     await _require_idle("scan_trigger", "idea", "review_trigger", "review_result")
     flow_id, trace_id = str(uuid.uuid4()), new_trace_id()
     _start_flow("review", flow_id, trace_id, recipient="portfolio-manager", type=MessageType.REVIEW_TRIGGER,
-                subject="review_trigger (dashboard)", payload={})
+                subject=f"review_trigger (dashboard{f', {conid}' if conid else ''})",
+                payload={"conid": conid} if conid else {})
     log.info(json.dumps({"event": "review_started", "trace_id": trace_id, "account": account.get("account")}))
     return {"trace_id": trace_id}
 
