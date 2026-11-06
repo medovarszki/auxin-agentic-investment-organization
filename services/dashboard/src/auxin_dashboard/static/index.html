@@ -41,6 +41,8 @@
   .agent .now { margin-top: 6px; font-size: 13px; word-break: break-word; max-height: 4.4em; overflow: hidden; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; }
   .working .dot { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+  .agent.waiting { border-style: dashed; }
+  .waiting .dot { background: var(--warn); }
   @keyframes pulse { 50% { opacity: .25; } }
   .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent);
           border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
@@ -70,6 +72,8 @@
   .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
   .err { background: var(--panel); border: 1px solid var(--bad); color: var(--bad); padding: 10px; border-radius: 8px;
          margin-bottom: 12px; }
+  .result { background: var(--panel); border: 1px solid var(--good); padding: 10px; border-radius: 8px; margin-bottom: 12px; }
+  .result .muted { margin-top: 6px; }
   details pre { white-space: pre-wrap; word-break: break-word; max-height: 400px; overflow: auto; background: var(--bg);
                 padding: 8px; border-radius: 6px; }
   h2 { font-size: 15px; margin: 20px 0 8px; }
@@ -325,6 +329,7 @@ const kTok = n => n >= 1000 ? `${(n / 1000).toLocaleString("hu-HU", {maximumFrac
 const tokens = t => t ? `<span title="input ${kTok(t.input)} · output ${kTok(t.output)} · cache read ${kTok(t.cache_read)} · cache write ${kTok(t.cache_creation)}">${kTok(t.total)} token</span>` : "";
 const sumTokens = list => list.reduce((s, t) => {
   if (!t) return s;
+  s ??= {};
   for (const k of ["input", "output", "cache_read", "cache_creation", "total"]) s[k] = (s[k] || 0) + (t[k] || 0);
   return s;
 }, null);
@@ -617,6 +622,7 @@ const views = {
     let filter = "", lastKey = "", sel = null;
     $view.innerHTML = `<p><a href="#flows">← Folyamatok</a> · élő folyamat · trace <span class="mono">${short(traceId)}</span>
         · <a href="#flow/${esc(traceId)}">részletes idővonal</a> <span id="lv-state"></span></p>
+      <div id="lv-result"></div>
       <div class="agents" id="lv-agents"></div>
       <div class="graph"><div class="graph-bar muted">A folyamat döntései szerepkörönként – kattints egy lépésre</div><div id="g-svg"><p class="muted">Még nincs döntés.</p></div></div>
       <div id="ev-panel" hidden></div>
@@ -634,22 +640,40 @@ const views = {
       if (!document.getElementById("lv-feed")) return;
       let d;
       try { d = await api(`/api/live/${encodeURIComponent(traceId)}`); }
-      catch (e) { document.getElementById("lv-state").innerHTML = `<span class="bad">${esc(e.message)}</span>`; return; }
-      const ideas = d.decisions.filter(x => x.kind === "idea");
+      catch (e) {  // a transient error must not freeze the view: keep polling
+        const state = document.getElementById("lv-state");
+        if (!state) return;
+        state.innerHTML = `· <span class="bad">${esc(e.message)} – újrapróbálom…</span>`;
+        clearTimeout(liveTimer);
+        liveTimer = setTimeout(tick, 2000);
+        return;
+      }
+      const ideas = d.decisions.filter(x => x.kind === "idea"), o = d.outcome;
       document.getElementById("lv-state").innerHTML = (d.running ? `· <span class="good"><span class="dot" style="background:var(--good)"></span>fut</span>`
-        : `· <span class="muted">befejeződött</span>`) +
+        : o?.failed ? `· <span class="bad">hibával zárult</span>` : `· <span class="muted">befejeződött</span>`) +
         (ideas.length ? ` · ötletek: ${ideas.map(x => `<a href="#idea/${esc(x.idea_id)}">${esc(x.symbol)}</a>`).join(", ")}` : "");
+      document.getElementById("lv-result").innerHTML = !o ? "" : o.failed
+        ? `<div class="err"><b>■ A folyamat hibával zárult.</b> ${esc(o.error || "")}</div>`
+        : `<div class="result"><b>■ A folyamat befejeződött${!o.scan ? "" : o.scan.ideas
+            ? ` · ${o.scan.ideas} ötlet a Portfolio Managernek` : " · 0 ötlet, nincs továbbadás a Portfolio Managernek"}.</b>
+            ${o.scan?.summary ? `<div class="muted">${esc(o.scan.summary)}</div>` : ""}</div>`;
+      const llmDone = new Set(d.activity.filter(a => a.kind === "task_finished").map(a => a.task_id));
       document.getElementById("lv-agents").innerHTML = roles.map(role => {
         const agent = Object.keys(agentRole).find(k => agentRole[k] === role);
         const ts = d.tasks.filter(t => t.agent === agent), acts = d.activity.filter(a => a.agent === agent);
-        const working = ts.some(t => ["SUBMITTED", "WORKING"].includes(t.state));
+        // The A2A task stays WORKING until its handler returns, i.e. while the downstream agents run too:
+        // it is "thinking" only until its own LLM run ends (task_finished), after that it is waiting for the handoff.
+        const open = ts.filter(t => ["SUBMITTED", "WORKING"].includes(t.state));
+        const working = open.some(t => !llmDone.has(t.task_id)), waiting = !working && open.length > 0;
         const last = acts[acts.length - 1], lastTask = ts[ts.length - 1];
-        const state = working ? "dolgozik" : ts.length ? `kész (${ts.length} taszk)` : "vár";
-        return `<div class="agent ${working ? "working" : ""}"><b><span class="dot"></span>${esc(role)}</b>
+        const state = working ? "dolgozik" : waiting ? "átadta, vár a továbbiakra" : ts.some(t => t.state === "FAILED") ? "hibával zárult"
+          : ts.length ? `kész (${ts.length} taszk)` : "vár";
+        return `<div class="agent ${working ? "working" : waiting ? "waiting" : ""}"><b><span class="dot"></span>${esc(role)}</b>
           <span class="muted"> · ${state}${acts.length ? ` · ${acts.length} lépés` : ""}${sumTokens(ts.map(t => t.tokens)) ? ` · ${tokens(sumTokens(ts.map(t => t.tokens)))}` : ""}</span>
           <div class="muted" style="font-size:12px">${lastTask ? `${esc(lastTask.type)}: ${esc(lastTask.subject)}` : ""}</div>
           <div class="now">${working ? '<span class="spin"></span>' : ""}${last ? `${ACT[last.kind] || ""} ${actLine(last)}`
-            : working ? '<span class="muted">indul…</span>' : '<span class="muted">–</span>'}</div></div>`;
+            : working ? '<span class="muted">indul…</span>' : '<span class="muted">–</span>'}
+          ${waiting ? '<div class="muted" style="font-size:12px">⏸ a saját munkáját befejezte, a következő agent dolgozik</div>' : ""}</div></div>`;
       }).join("");
       const key = `${d.activity.length}/${d.decisions.length}/${filter}/${d.running}`;
       if (key !== lastKey) {
@@ -667,7 +691,7 @@ const views = {
         }
         // failed tool results (the agent retries or moves on) are noise in the live feed; a failed task stays visible
         const rows = d.activity.filter(a => (!filter || agentRole[a.agent] === filter) && !(a.kind === "tool_result" && a.is_error)).slice().reverse();
-        const working = new Set(d.tasks.filter(t => ["SUBMITTED", "WORKING"].includes(t.state)).map(t => t.agent));
+        const working = new Set(d.tasks.filter(t => ["SUBMITTED", "WORKING"].includes(t.state) && !llmDone.has(t.task_id)).map(t => t.agent));
         const current = new Set(rows.filter(a => working.has(a.agent) && a.kind !== "task_finished")
           .map(a => a.agent).map(agent => rows.find(a => a.agent === agent)));
         document.getElementById("lv-count").textContent = `${rows.length} lépés`;

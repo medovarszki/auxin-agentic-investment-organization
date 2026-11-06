@@ -456,6 +456,20 @@ async def manual_review(conid: int, body: ManualReviewIn) -> dict:
     return {"trace_id": trace_id}
 
 
+async def _outcome(trace_id: str) -> dict | None:
+    """How a finished flow ended: its error, or for a scan the number of ideas and the market summary."""
+    rows = await _rows(f"SELECT {TASK_COLUMNS}, status, artifacts FROM a2a_tasks WHERE metadata->>'trace_id' = :t "
+                       "ORDER BY last_updated", t=trace_id)
+    tasks = [_task(r, detail=True) for r in rows]
+    if not tasks:
+        return None
+    failed = next((t for t in tasks if t["state"] == "FAILED"), None)
+    scan = next((a["scan"] for t in tasks for a in t["artifacts"] if isinstance(a, dict) and "scan" in a), None)
+    return {"failed": failed is not None, "error": failed["status_message"] if failed else None,
+            "scan": scan and {"ideas": len(scan.get("ideas") or []),
+                              "summary": (scan.get("market_view") or {}).get("summary")}}
+
+
 @app.get("/api/live/{trace_id}")
 async def live(trace_id: str) -> dict:
     """One flow as it runs: its tasks, its decision-log rows (with roles) and every LLM step recorded so far."""
@@ -472,7 +486,8 @@ async def live(trace_id: str) -> dict:
         d["role"], d["phase"], d["snapshot"] = _role(d), "ötlet", None
         events += [d, *filter(None, [_gate_pass(d)])]
     starting = any(not s.done() for s in _scans) and not tasks
-    return {"trace_id": trace_id, "running": starting or any(t["state"] in ("SUBMITTED", "WORKING") for t in tasks),
+    running = starting or any(t["state"] in ("SUBMITTED", "WORKING") for t in tasks)
+    return {"trace_id": trace_id, "running": running, "outcome": None if running else await _outcome(trace_id),
             "tasks": tasks, "decisions": events, "activity": activity}
 
 
