@@ -66,6 +66,7 @@ services:
       - ../egress/squid.conf:/etc/squid/squid.conf:ro
       - ../egress/allowlist.txt:/etc/squid/allowlist.txt:ro
     networks: [agents, egress]
+    restart: unless-stopped
     cpus: 0.5
     mem_limit: 256m
 
