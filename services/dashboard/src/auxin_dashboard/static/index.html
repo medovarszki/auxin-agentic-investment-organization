@@ -47,6 +47,30 @@
   .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent);
           border-radius: 50%; animation: spin .8s linear infinite; vertical-align: -2px; margin-right: 6px; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  .pipe { display: flex; align-items: stretch; margin: 12px 0 4px; }
+  .pnode { flex: 1 1 0; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+           padding: 10px 12px; text-align: center; }
+  .pnode b { display: block; }
+  .pnode .st { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .pnode.working { border-color: var(--accent); border-width: 2px; }
+  .pnode.waiting { border-style: dashed; border-color: var(--warn); }
+  .pnode.done { border-color: var(--good); }
+  .pnode.failed { border-color: var(--bad); }
+  .pnode.working .st { color: var(--accent); font-weight: 600; }
+  .pnode.failed .st { color: var(--bad); }
+  .pedge { flex: 0 0 150px; display: flex; flex-direction: column; justify-content: center; align-items: center;
+           gap: 4px; padding: 0 6px; font-size: 11px; color: var(--muted); text-align: center; min-width: 0; }
+  .pedge .line { position: relative; width: 100%; height: 2px; background: var(--line); }
+  .pedge .line::after { content: "▶"; position: absolute; right: -4px; top: -8px; font-size: 11px; color: var(--line); }
+  .pedge.active .line { background: repeating-linear-gradient(90deg, var(--accent) 0 6px, transparent 6px 12px);
+                        background-size: 12px 2px; animation: flowline .6s linear infinite; }
+  .pedge.active .line::after { color: var(--accent); }
+  @keyframes flowline { to { background-position: 12px 0; } }
+  .pedge .lbl { word-break: break-word; }
+  .pedge .back { opacity: .85; }
+  .pipe-start { font-size: 12px; margin: 12px 0 0; }
+  @media (max-width: 720px) { .pipe { flex-direction: column; } .pedge { flex-basis: auto; padding: 8px 0; }
+    .pedge .line { width: 2px; height: 22px; background-size: 2px 12px; } .pedge .line::after { display: none; } }
   .feed { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; max-height: 560px; overflow-y: auto; }
   .feed .row { display: grid; grid-template-columns: 70px 130px 1fr; gap: 8px; padding: 6px 10px;
                border-bottom: 1px solid var(--line); font-size: 13px; }
@@ -367,6 +391,43 @@ function triggerLabel(r) {
   return {label: type, by: r.sender ? `${r.sender} (régi folyamat)` : ""};
 }
 
+// The flow as a pipeline: Research -> Portfolio Manager -> Execution, with the handoffs (A2A tasks) on the edges.
+const PIPE = [["research", "Research"], ["portfolio-manager", "Portfolio Manager"], ["execution", "Execution"]];
+const ACTIVE = ["SUBMITTED", "WORKING"];
+function handoffLabel(t) {  // "Idea: NVDA" -> NVDA, "Review: TSM (5.39% NAV)" -> TSM, "Order: BUY 321 NVDA" -> BUY 321 NVDA
+  const sub = String(t.subject || t.type || "").replace(/^[^:]*:\s*/, "").replace(/\s*\(.*?\)\s*$/, "");
+  return sub || t.type;
+}
+function renderPipeline(d, llmDone) {
+  const nodes = PIPE.map(([agent, name]) => {
+    const ts = d.tasks.filter(t => t.agent === agent), open = ts.filter(t => ACTIVE.includes(t.state));
+    const working = open.some(t => !llmDone.has(t.task_id)), waiting = !working && open.length > 0;
+    const failed = ts.some(t => t.state === "FAILED");
+    const [cls, icon, text] = working ? ["working", '<span class="spin"></span>', "dolgozik"]
+      : waiting ? ["waiting", "⏸", "átadta, vár"] : failed ? ["failed", "✕", "hibával zárult"]
+      : ts.length ? ["done", "✓", `kész · ${ts.length} taszk`] : ["", "○", "nem vett részt / vár"];
+    return `<div class="pnode ${cls}"><b>${icon} ${esc(name)}</b><div class="st">${text}</div></div>`;
+  });
+  const edge = (from, to) => {
+    const fwd = d.tasks.filter(t => t.sender === from && t.agent === to);
+    const back = d.tasks.filter(t => t.sender === to && t.agent === from);
+    const list = (ts, arrow) => {
+      const names = [...new Set(ts.map(handoffLabel))];
+      return !names.length ? "" : `<div class="lbl ${arrow === "←" ? "back" : ""}">${arrow} ${names.slice(0, 4).map(esc).join(", ")}${names.length > 4 ? ` +${names.length - 4}` : ""}</div>`;
+    };
+    const active = [...fwd, ...back].some(t => ACTIVE.includes(t.state));
+    return `<div class="pedge ${active ? "active" : ""}">${list(fwd, "→")}<div class="line"></div>${list(back, "←")}</div>`;
+  };
+  document.getElementById("lv-pipe").innerHTML = nodes.flatMap((n, i) =>
+    i ? [edge(PIPE[i - 1][0], PIPE[i][0]), n] : [n]).join("");
+  const first = d.tasks.find(t => ["scheduler", "operator", "dashboard"].includes(t.sender));
+  const el = document.getElementById("lv-start");
+  if (first) {
+    const t = triggerLabel({trigger: first.type, sender: first.sender, trigger_subject: first.subject});
+    el.innerHTML = `Indította: <b>${esc(t.label)}</b> · ${esc(t.by)} → ${esc((PIPE.find(p => p[0] === first.agent) || [0, first.agent])[1])}`;
+  } else el.textContent = "";
+}
+
 async function startFlow(url, question, running) {
   if (!confirm(question)) return;
   const r = await fetch(url, {method: "POST"});
@@ -659,6 +720,8 @@ const views = {
     $view.innerHTML = `<p><a href="#flows">← Folyamatok</a> · élő folyamat · trace <span class="mono">${short(traceId)}</span>
         · <a href="#flow/${esc(traceId)}">részletes idővonal</a> <span id="lv-state"></span></p>
       <div id="lv-result"></div>
+      <div class="pipe-start muted" id="lv-start"></div>
+      <div class="pipe" id="lv-pipe"></div>
       <div class="agents" id="lv-agents"></div>
       <div class="graph"><div class="graph-bar muted">A folyamat döntései szerepkörönként – kattints egy lépésre</div><div id="g-svg"><p class="muted">Még nincs döntés.</p></div></div>
       <div id="ev-panel" hidden></div>
@@ -694,6 +757,7 @@ const views = {
             ? ` · ${o.scan.ideas} ötlet a Portfolio Managernek` : " · 0 ötlet, nincs továbbadás a Portfolio Managernek"}.</b>
             ${o.scan?.summary ? `<div class="muted">${esc(o.scan.summary)}</div>` : ""}</div>`;
       const llmDone = new Set(d.activity.filter(a => a.kind === "task_finished").map(a => a.task_id));
+      renderPipeline(d, llmDone);
       document.getElementById("lv-agents").innerHTML = roles.map(role => {
         const agent = Object.keys(agentRole).find(k => agentRole[k] === role);
         const ts = d.tasks.filter(t => t.agent === agent), acts = d.activity.filter(a => a.agent === agent);
