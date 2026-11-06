@@ -360,6 +360,19 @@ async def start_scan() -> dict:
     return {"trace_id": trace_id}
 
 
+@app.post("/api/review", status_code=202)
+async def start_review() -> dict:
+    """review_trigger -> Portfolio Manager (the daily review, now): pending orders first, then one Research review per
+    open position; REDUCE / CLOSE -> SELL sizing -> Execution. PAPER only, one flow at a time."""
+    account = await _paper_account()
+    await _require_idle("scan_trigger", "idea", "review_trigger", "review_result")
+    flow_id, trace_id = str(uuid.uuid4()), new_trace_id()
+    _start_flow("review", flow_id, trace_id, recipient="portfolio-manager", type=MessageType.REVIEW_TRIGGER,
+                subject="review_trigger (dashboard)", payload={})
+    log.info(json.dumps({"event": "review_started", "trace_id": trace_id, "account": account.get("account")}))
+    return {"trace_id": trace_id}
+
+
 class ManualIdeaIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

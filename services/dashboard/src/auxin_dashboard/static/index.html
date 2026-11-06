@@ -123,6 +123,7 @@
     <button data-tab="outcomes">Eredmények</button>
   </nav>
   <button id="scan" class="small primary">▶ Ötletgenerálás</button>
+  <button id="review" class="small primary">▶ Pozíciók review</button>
   <button id="idea-add" class="small primary">＋ Saját ötlet</button>
   <button id="refresh" class="small">Frissítés</button>
 </header>
@@ -348,18 +349,26 @@ function actLine(a) {
   return esc(a.text);
 }
 
-async function startScan() {
-  if (!confirm("Indítsak most egy ötletgenerálást (scan) a PAPER számlán?\n\n" +
-      "Végigmegy a teljes vételi folyamaton: Research → Portfolio Manager → szabálykapu → Execution. " +
-      "Ebből valódi paper megbízás és kötés lehet; zárt piacnál a megbízás függő marad. " +
-      "Egy scan néhány perc, LLM-költsége nagyjából $1–3.")) return;
-  const r = await fetch("/api/scan", {method: "POST"});
+async function startFlow(url, question, running) {
+  if (!confirm(question)) return;
+  const r = await fetch(url, {method: "POST"});
   const body = await r.json().catch(() => ({}));
   if (r.ok) return go(`live/${body.trace_id}`);
   const d = body.detail || {};
-  if (r.status === 409 && d.trace_id) { alert("Már fut egy scan, megnyitom."); return go(`live/${d.trace_id}`); }
+  if (r.status === 409 && d.trace_id) { alert(running); return go(`live/${d.trace_id}`); }
   alert(`Nem indult el: ${d.message || d || r.status}`);
 }
+
+const startScan = () => startFlow("/api/scan",
+  "Indítsak most egy ötletgenerálást (scan) a PAPER számlán?\n\n" +
+  "Végigmegy a teljes vételi folyamaton: Research → Portfolio Manager → szabálykapu → Execution. " +
+  "Ebből valódi paper megbízás és kötés lehet; zárt piacnál a megbízás függő marad. " +
+  "Egy scan néhány perc, LLM-költsége nagyjából $1–3.", "Már fut egy scan, megnyitom.");
+const startReview = () => startFlow("/api/review",
+  "Indítsam most a nyitott pozíciók review-ját a PAPER számlán?\n\n" +
+  "A Portfolio Manager előbb elküldi a függő megbízásokat, majd minden nyitott pozíciót átad a Research-nek. " +
+  "REDUCE / CLOSE javaslatból azonnal SELL megbízás lesz (Execution), pozíciónként egy LLM-futással.",
+  "Már fut egy folyamat, megnyitom.");
 
 const $ideaDlg = document.getElementById("idea-dlg"), $ideaForm = document.getElementById("idea-form"),
   $ideaMsg = document.getElementById("idea-msg"), $ideaSend = document.getElementById("idea-send");
@@ -786,6 +795,7 @@ async function render() {
 document.querySelectorAll("#tabs button").forEach(b => b.addEventListener("click", () => go(b.dataset.tab)));
 document.getElementById("refresh").addEventListener("click", render);
 document.getElementById("scan").addEventListener("click", startScan);
+document.getElementById("review").addEventListener("click", startReview);
 document.getElementById("idea-add").addEventListener("click", () => { $ideaMsg.textContent = ""; $ideaDlg.showModal(); });
 document.getElementById("idea-cancel").addEventListener("click", () => $ideaDlg.close());
 $ideaForm.addEventListener("submit", sendIdea);
