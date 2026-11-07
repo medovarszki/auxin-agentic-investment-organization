@@ -12,8 +12,10 @@ import json
 import logging
 import os
 import uuid
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 import httpx
 import uvicorn
@@ -514,6 +516,73 @@ async def tasks(limit: int = 200) -> list[dict]:
     rows = await _rows(f"SELECT {TASK_COLUMNS}, last_updated FROM a2a_tasks ORDER BY last_updated DESC LIMIT :limit",
                        limit=limit)
     return await _with_tokens([_task(r) for r in rows])
+
+
+TZ = ZoneInfo("Europe/Budapest")
+CORE_AGENTS = ("research", "portfolio-manager", "execution")  # always shown, even without tasks in the window
+
+
+@app.get("/api/agents")
+async def agents(days: int = 14) -> dict:
+    """Per agent, the last `days` days (Budapest days): tasks per day by outcome, task types, tool calls, LLM tokens,
+    decision-log events and the latest tasks. A task counts on the day of its last update (a2a_tasks has no creation time)."""
+    days = max(1, min(days, 90))
+    today = datetime.now(TZ).date()
+    labels = [(today - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+    since = datetime.combine(today - timedelta(days=days - 1), time.min, tzinfo=TZ)  # aware: compared with timestamptz
+    since_utc_naive = since.astimezone(UTC).replace(tzinfo=None)  # a2a_tasks.last_updated is naive UTC
+    tasks = await _rows(
+        """SELECT owner AS agent, ((last_updated AT TIME ZONE 'UTC') AT TIME ZONE 'Europe/Budapest')::date AS day,
+                  status->>'state' AS state, metadata->>'type' AS type, count(*) AS n
+           FROM a2a_tasks WHERE owner IS NOT NULL AND last_updated >= :since GROUP BY 1, 2, 3, 4""", since=since_utc_naive)
+    tools = await _rows("SELECT agent, name, count(*) AS n FROM agent_activity WHERE kind = 'tool_use' AND created_at >= :since "
+                        "GROUP BY 1, 2 ORDER BY n DESC", since=since)
+    finished = await _rows("SELECT agent, created_at, text FROM agent_activity WHERE kind = 'task_finished' "
+                           "AND created_at >= :since", since=since)
+    kinds = await _rows("SELECT agent, kind, count(*) AS n FROM decisions WHERE created_at >= :since GROUP BY 1, 2",
+                        since=since)
+    recent = await _rows(
+        f"""SELECT * FROM (SELECT {TASK_COLUMNS}, last_updated, row_number() OVER (PARTITION BY owner ORDER BY last_updated DESC) AS rn
+                           FROM a2a_tasks WHERE owner IS NOT NULL) t WHERE rn <= 8 ORDER BY last_updated DESC""")
+
+    names = list(dict.fromkeys([*CORE_AGENTS, *(r["agent"] for r in tasks), *(r["agent"] for r in finished)]))
+    out = {n: {"agent": n, "role": AGENT_ROLES.get(n, n), "daily": {d: {"completed": 0, "rejected": 0, "failed": 0, "other": 0}
+                                                                     for d in labels},
+               "types": {}, "tools": [], "decisions": {}, "tokens": {"total": 0, "daily": dict.fromkeys(labels, 0)},
+               "llm_runs": 0, "recent": []} for n in names}
+    for r in tasks:
+        state = (r["state"] or "").removeprefix("TASK_STATE_").lower()
+        bucket = out[r["agent"]]["daily"][r["day"].isoformat()]
+        bucket[state if state in ("completed", "rejected", "failed") else "other"] += r["n"]
+        types = out[r["agent"]]["types"]
+        types[r["type"] or "?"] = types.get(r["type"] or "?", 0) + r["n"]
+    for r in tools:
+        if r["agent"] in out:
+            out[r["agent"]]["tools"].append({"name": r["name"], "n": r["n"]})
+    for r in finished:
+        try:
+            used = json.loads(r["text"]).get("tokens") or {}
+        except ValueError:
+            used = {}
+        a = out[r["agent"]]
+        a["llm_runs"] += 1
+        a["tokens"]["total"] += used.get("total", 0)
+        a["tokens"]["daily"][r["created_at"].astimezone(TZ).date().isoformat()] += used.get("total", 0)
+    for r in kinds:
+        if r["agent"] in out:
+            out[r["agent"]]["decisions"][r["kind"]] = r["n"]
+    for r in recent:
+        if r["agent"] in out:
+            out[r["agent"]]["recent"].append({k: r[k] for k in ("task_id", "type", "subject", "state", "trace_id", "last_updated")}
+                                             | {"state": (r["state"] or "").removeprefix("TASK_STATE_")})
+    result = []
+    for a in out.values():
+        a["daily"] = [{"day": d, **v} for d, v in a["daily"].items()]
+        a["tokens"]["daily"] = [{"day": d, "total": v} for d, v in a["tokens"]["daily"].items()]
+        a["tools"] = a["tools"][:8]
+        a["totals"] = {k: sum(d[k] for d in a["daily"]) for k in ("completed", "rejected", "failed", "other")}
+        result.append(a)
+    return {"days": labels, "agents": result}
 
 
 @app.get("/api/outcomes")

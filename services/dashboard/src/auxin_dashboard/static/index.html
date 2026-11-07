@@ -133,6 +133,24 @@
   .facts span b { font-weight: 600; }
   .lede { font-size: 15px; margin: 4px 0 8px; }
   ul.src { margin: 4px 0; padding-left: 18px; font-size: 13px; }
+  .ag-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; }
+  @media (max-width: 480px) { .ag-grid { grid-template-columns: 1fr; } }
+  .ag { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+  .ag h2 { margin: 0 0 8px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .ag h3 { font-size: 12px; font-weight: 500; color: var(--muted); margin: 12px 0 4px; }
+  .ag svg { display: block; width: 100%; height: auto; font: 11px system-ui, sans-serif; }
+  .ag svg text { fill: var(--muted); }
+  .ag .bar-c { fill: var(--good); } .ag .bar-r { fill: var(--warn); } .ag .bar-f { fill: var(--bad); } .ag .bar-o { fill: var(--muted); }
+  .ag .bar-t { fill: var(--accent); opacity: .55; }
+  .ag svg .grid { stroke: var(--line); }
+  .ag .hit:hover { fill: var(--text); opacity: .08; }
+  .legend { display: flex; gap: 12px; font-size: 12px; color: var(--muted); margin-top: 2px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  .hbar { display: grid; grid-template-columns: minmax(80px, 38%) 1fr auto; gap: 8px; align-items: center; font-size: 12px; margin: 2px 0; }
+  .hbar .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hbar .tr { background: var(--bg); border-radius: 3px; height: 8px; } .hbar .tr b { display: block; height: 8px; border-radius: 3px; background: var(--accent); opacity: .7; }
+  .rec { display: grid; grid-template-columns: 82px 1fr auto; gap: 8px; font-size: 12px; padding: 3px 0; border-top: 1px solid var(--line); }
+  .rec span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -143,6 +161,7 @@
     <button data-tab="ideas">Ötletek</button>
     <button data-tab="flows">Folyamatok</button>
     <button data-tab="decisions">Döntési napló</button>
+    <button data-tab="agents">Agentek</button>
     <button data-tab="tasks">Taszkok</button>
     <button data-tab="outcomes">Eredmények</button>
   </nav>
@@ -375,7 +394,7 @@ function actLine(a) {
 
 // What started a flow: the first external task's sender (scheduler / CLI / dashboard) and type.
 const TRIGGERS = {
-  scan_trigger: "Ötletgenerálás (scan)", review_trigger: "Napi review", execute_pending: "Függő megbízások",
+  scan_trigger: "Ötletgenerálás (scan)", review_trigger: "Napi review", review_request: "Review-kérés (PM-től)", execute_pending: "Függő megbízások",
   idea: "Ötlet a PM-nek", review_result: "Kézi döntés", decision_outcome: "Lezárt pozíció kiértékelése",
 };
 function triggerLabel(r) {
@@ -836,6 +855,70 @@ const views = {
     };
     document.getElementById("f-kind").addEventListener("change", apply);
     document.getElementById("f-symbol").addEventListener("change", apply);
+  },
+
+  async agents() {
+    const days = Number(new URLSearchParams(location.hash.split("?")[1] || "").get("days")) || 14;
+    const d = await api(`/api/agents?days=${days}`);
+    const short_day = s => s.slice(5).replace("-", ".");
+    // stacked bars per day: [key, css class, label]; `title` per day gives the exact numbers on hover
+    const SERIES = [["completed", "bar-c", "kész"], ["rejected", "bar-r", "elutasítva"], ["failed", "bar-f", "hibás"], ["other", "bar-o", "egyéb"]];
+    const bars = (rows, series, unit) => {
+      const W = 560, H = 120, L = 38, B = 16, T = 6, n = rows.length, bw = (W - L) / n;
+      const top = Math.max(1, ...rows.map(r => series.reduce((s, [k]) => s + (r[k] || 0), 0))), p = 10 ** Math.floor(Math.log10(top));
+      const max = Math.max(2, [1, 2, 4, 6, 8, 10].map(c => c * p).find(c => c >= top));  // round, so the middle tick is round too
+      const y = v => T + (H - T - B) * (1 - v / max);
+      let svg = [0, max / 2, max].map(v => `<line class="grid" x1="${L}" x2="${W}" y1="${y(v)}" y2="${y(v)}"></line>
+        <text x="${L - 4}" y="${y(v) + 3}" text-anchor="end">${v >= 1000 ? kTok(v) : Math.round(v * 10) / 10}</text>`).join("");
+      rows.forEach((r, i) => {
+        let acc = 0;
+        const x = L + i * bw + bw * .15, w = bw * .7;
+        for (const [k, cls] of series) {
+          const v = r[k] || 0;
+          if (!v) continue;
+          svg += `<rect class="${cls}" x="${x}" y="${y(acc + v)}" width="${w}" height="${y(acc) - y(acc + v)}" rx="1.5"></rect>`;
+          acc += v;
+        }
+        const tip = `${r.day}: ` + (series.map(([k, , label]) => r[k] ? `${r[k]} ${label}` : "").filter(Boolean).join(", ") || `0 ${unit}`);
+        svg += `<rect class="hit" x="${L + i * bw}" y="${T}" width="${bw}" height="${H - T - B}" fill="transparent"><title>${esc(tip)}</title></rect>`;
+        if ((n - 1 - i) % Math.ceil(n / 7) === 0)
+          svg += `<text x="${L + i * bw + bw / 2}" y="${H - 3}" text-anchor="middle">${short_day(r.day)}</text>`;
+      });
+      return `<svg viewBox="0 0 ${W} ${H}" role="img">${svg}</svg>`;
+    };
+    const hbars = (items, empty) => {
+      const max = Math.max(1, ...items.map(i => i.n));
+      return items.length ? items.map(i => `<div class="hbar"><span class="nm" title="${esc(i.name)}">${esc(i.name)}</span>
+        <span class="tr"><b style="width:${i.n / max * 100}%"></b></span><span class="num">${i.n}</span></div>`).join("")
+        : `<p class="muted" style="margin:2px 0;font-size:12px">${empty}</p>`;
+    };
+    const entries = o => Object.entries(o).map(([name, n]) => ({name: KIND_LABEL[name] || TRIGGERS[name] || name, n})).sort((a, b) => b.n - a.n);
+    const totalTasks = a => Object.values(a.totals).reduce((s, v) => s + v, 0);
+    const order = ["research", "portfolio-manager", "execution"];
+    const list = d.agents.slice().sort((a, b) => (order.indexOf(a.agent) + 1 || 99) - (order.indexOf(b.agent) + 1 || 99));
+    $view.innerHTML = `<div class="filters"><span class="seg">${[7, 14, 30].map(n =>
+        `<button data-days="${n}" class="${n === days ? "on" : ""}">${n} nap</button>`).join("")}</span>
+        <span class="muted">Az elmúlt ${days} nap, agentenként (budapesti napok; a taszk az utolsó frissítése napján számít)</span></div>
+      <div class="ag-grid">${list.map(a => {
+        const done = a.totals.completed, all = totalTasks(a), dec = Object.values(a.decisions).reduce((s, v) => s + v, 0);
+        return `<div class="ag"><h2>${esc(a.role)} <span class="muted" style="font-weight:400;font-size:13px">${all} taszk
+            ${all ? `· <span class="good">${done} kész</span>` : ""}${a.totals.rejected ? ` · <span class="warn">${a.totals.rejected} elutasítva</span>` : ""}${a.totals.failed ? ` · <span class="bad">${a.totals.failed} hibás</span>` : ""}
+            ${dec ? `· ${dec} naplóesemény` : ""}</span></h2>
+          <h3>Taszkok naponta</h3>${all ? bars(a.daily, SERIES, "taszk") : `<p class="muted" style="margin:2px 0;font-size:12px">Ebben az időszakban nem volt taszk.</p>`}
+          <div class="legend">${SERIES.filter(([k]) => a.totals[k]).map(([, cls, label]) =>
+            `<span><i class="${cls}" style="background:var(--${{"bar-c": "good", "bar-r": "warn", "bar-f": "bad", "bar-o": "muted"}[cls]})"></i>${label}</span>`).join("")}</div>
+          <h3>Taszk típusok</h3>${hbars(entries(a.types), "–")}
+          <h3>Naplóesemények (döntési napló)</h3>${hbars(entries(a.decisions), "Nem írt a döntési naplóba.")}
+          ${a.llm_runs ? `<h3>LLM-token naponta · ${a.llm_runs} futás · ${kTok(a.tokens.total)} token</h3>
+            ${bars(a.tokens.daily.map(t => ({day: t.day, total: t.total})), [["total", "bar-t", "token"]], "token")}
+            <h3>Leggyakoribb tool-hívások</h3>${hbars(a.tools, "Nem hívott toolt.")}`
+          : `<h3>LLM</h3><p class="muted" style="margin:2px 0;font-size:12px">Ebben az időszakban nincs rögzített LLM-futás (az Execution determinisztikus).</p>`}
+          <h3>Utolsó taszkok</h3>${a.recent.map(t => `<div class="rec"><span class="muted">${new Date(t.last_updated + "Z").toLocaleString("hu-HU", {dateStyle: "short", timeStyle: "short"})}</span>
+            <span>${t.trace_id ? `<a href="#flow/${esc(t.trace_id)}">${esc(t.subject || t.type)}</a>` : esc(t.subject || t.type)}</span>
+            <span class="${stateCls(t.state)}">${esc(t.state.toLowerCase())}</span></div>`).join("") || `<p class="muted" style="margin:2px 0;font-size:12px">–</p>`}
+        </div>`;
+      }).join("")}</div>`;
+    $view.querySelectorAll("[data-days]").forEach(b => b.addEventListener("click", () => go(`agents?days=${b.dataset.days}`)));
   },
 
   async tasks() {
