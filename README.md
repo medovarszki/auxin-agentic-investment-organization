@@ -1,11 +1,119 @@
-# Auxin – agentic investment organization
+# Auxin – a szervezet, mint ágenshálózat
 
-Az Auxin egy **kizárólag agentekből álló, virtuális befektetési alapkezelő**, amely egy valódi alapkezelő szervezetét kívánja modellezni: szervezeti egységek, pozíciók, jelentési vonalak, felelősségi körök, írott befektetési szabályok, ellenőrzési pontok és döntési napló.
+Az Auxin egy **virtuális befektetési alapkezelő, amelyben minden munkatárs egy AI-ágens**. Nem egy kereskedő robot, hanem egy kis szervezet: vannak pozíciói, munkaköri leírásai, írott szabályai, ellenőrzési pontjai és közös emlékezete, pontosan úgy, mint egy valódi cégnek.
+
+A projekt egy kérdésre keres gyakorlati választ: **hogyan modellezhetőek a szervezeti funkciók AI-ágensekkel?** Minden szervezet egyénekből áll, akiknek skilljeik (szaktudásuk) vannak, és az értéket az együttműködésük adja. Ha egy szervezet folyamatait végponttól végpontig leírjuk, ágensekkel gyorsan újramodellezhető. A befektetési terület azért jó példa, mert szigorúan szabályozott, a döntések mérhetők, és világos, ki mit hagyhat jóvá. Maga a terület csak illusztráció: ugyanígy leírható lenne egy compliance-, riporting- vagy backoffice-funkció is.
+
+> **Biztonság:** az Auxin egy Interactive Brokers **paper (demo) számlán** kereskedik, valódi pénz nincs benne. Ez egy működő MVP (minimális, de valóban működő első verzió), nem befektetési tanácsadás.
+
+Vezetői összefoglaló diákon: [Auxin vezetői összefoglaló](https://claude.ai/artifact/Y4VsYs6N4nfZ2NCP38nKbY).
+
+## Röviden: hogyan működik?
+
+Három „munkatárs” dolgozik együtt, egy futószalag mentén:
+
+```mermaid
+flowchart LR
+    R["🔎 Research<br/>ötletet keres"] -- "befektetési ötlet" --> PM["⚖️ Portfolio Manager<br/>megtámadja és dönt"]
+    PM -- "vételi / eladási megbízás" --> E["🧾 Execution<br/>végrehajtja"]
+    E -- "megbízás" --> B(["Broker (IBKR)<br/>demo számla"])
+    E -. "teljesülés" .-> N[("Közös napló<br/>és tudásbázis")]
+    R & PM -. "minden döntés" .-> N
+    N -. "tanulságok" .-> R
+```
+
+| Munkatárs | Kicsoda | Mit csinál | Mit nem tehet |
+|---|---|---|---|
+| **Research** (elemző) | AI-ágens (Claude Sonnet 5.5) | Minden munkanap reggel átnézi a piacot: híreket, jegybanki döntéseket, makroadatokat, gyorsjelentéseket, a piaci hangulatot és a domináns narratívákat. Naponta legfeljebb 3 befektetési ötletet ad, datált, ellenőrzött forrásokkal. Délután újraértékeli a nyitott pozíciókat (tartás, csökkentés vagy zárás), és a lezárt ügyletekből tanulságot ír. | Nem dönt, nem ad célárat, nem kereskedhet. |
+| **Portfolio Manager** (portfóliókezelő) | AI-ágens (Claude Opus 5.5) + kódba írt szabálykapu | Minden ötletet a portfólió ismeretében megtámad: belefér-e (van-e szabad pénz, nem duplázza-e meg ugyanazt a fogadást, van-e hely az adott kockázati kategóriában), és csak utána kutat. Dönt: **vétel** saját javaslattal (célár, időtáv, kockázatok, források, meggyőződés 1–5) vagy **elutasítás** indoklással. | A pozíció méretét és a kemény szabályokat nem ő, hanem a kód állapítja meg; megbízást nem ad le közvetlenül. |
+| **Execution** (kereskedő) | Hagyományos program, nem AI | Ellenőrzi a megbízást (demo számla-e, egyezik-e a PM döntésével, van-e friss ár), és leadja a brokernél, csak kereskedési időben. | Az egyetlen, aki kereskedhet; önálló döntése nincs. |
+
+Szándékosan **két különböző AI-modell** dolgozik a két ágensben: így az ötletet más „gondolkodásmód” vizsgálja felül, mint amelyik kitalálta.
+
+### Egy munkanap
+
+| Időpont | Mi történik |
+|---|---|
+| **09:00** | A Research átnézi a piacot, és legfeljebb 3 ötletet küld. A PM mindegyiket megvizsgálja; amit elfogad, abból a kód megbízást méretez, az Execution leadja (zárt piacnál a délutáni körig vár). |
+| **15:30** | Napi felülvizsgálat: a függőben maradt megbízások kimennek, majd a Research egyenként újraértékeli az összes nyitott pozíciót. Csökkentés vagy zárás esetén eladási megbízás születik. |
+| **21:00** | Kiértékelés: a lezárt pozíciók tényleges hozamát a rendszer kiszámolja, a Research pedig tanulságot ír belőle, amit a következő döntéseinél figyelembe vesz. |
+
+### A szabályok, amelyekhez mindenki tartja magát
+
+- Csak részvények és ETF-ek, csak vétel és eladás (nincs short, nincs tőkeáttétel), egyelőre dollárban jegyzett papírok.
+- Új pozíció csak akkor, ha legalább **15% hozampotenciál** van a célárig.
+- A pozíció mérete a meggyőződéstől függ: 1–5-ös skálán a portfólió 2–10%-a.
+- Egy iparágba legfeljebb a portfólió 25%-a, és a négy kockázati kategória (stabil, mérsékelt, növekedési, spekulatív) mindegyikébe szintén legfeljebb 25% kerülhet.
+- Minden döntés indoklással együtt a közös naplóba kerül; szabályt, eljárást vagy ágens-utasítást csak ember (Mihály) módosíthat.
+
+Ezeket a szabályokat nem az AI-ra bízzuk, hanem **kód kényszeríti ki**: ha egy döntés sértené valamelyiket, nem lesz belőle megbízás.
+
+### Mi teszi „szervezetté”?
+
+Minden szervezeti fogalomnak van ágenses megfelelője:
+
+| Szervezetben | Az Auxinban |
+|---|---|
+| munkatárs, pozíció | egy ágens egy szerepben (Research, Portfolio Manager, Execution) |
+| munkaköri leírás | szerepenkénti leíró: mi a dolga, és ami legalább ilyen fontos, mi **nem** |
+| eljárásrend, szaktudás | „skillek”: szövegesen leírt eljárások, amelyek szerint az ágens dolgozik |
+| folyamat, átadás | üzenet két ágens között: ötlet → javaslat → döntés → megbízás |
+| jogosultságok | ki mihez fér hozzá: csak az Execution kereskedhet, az AI-ágensek csak olvasnak |
+| szervezeti emlékezet | közös döntési napló és tudásbázis, tanulságokkal |
+| belső ellenőrzés | ellenőrzési pontok: előszűrés, a PM kritikája, szabálykapu, végrehajtás előtti ellenőrzés |
+
+Emiatt egy szervezetet nem szoftverként, hanem szervezetként lehet megtervezni, és utána futtatni. A hagyományos szervezetek drága belső súrlódásai (hatásköri viták, elveszett tudás, hosszú jóváhagyási láncok) itt technikai kérdésekké válnak: az átadás egy üzenet, a hatáskör le van írva, a szabály kódban fut, a tudás a naplóban marad. Az ágenseknek is vannak hibái, de ezek láthatók és javíthatók.
+
+### Mit lát az, aki ránéz? (dashboard)
+
+A böngészőben futó irányítópulton bárki követheti a szervezet működését:
+
+- **Portfólió élőben:** vagyon, szabad pénz, pozíciók, súlyok, nyereség/veszteség.
+- **Élő nézet:** felül egy futószalag-sáv mutatja, ki dolgozik éppen (Research → PM → Execution), ki adta át a munkát és vár, ki végzett; alatta ágensenként látszik, mit csinál és mit „gondol” éppen az AI (keresések, olvasott források, köztes következtetések).
+- **Ötletmenedzser:** minden ötlet, elfogadott és elutasított, kattintható folyamatábrával; egy ötlet teljes története visszajátszható.
+- **Agentek nézet:** munkatársanként az elmúlt 7 / 14 / 30 nap: hány feladatot végzett és milyen eredménnyel, milyen döntéseket hozott, mennyi AI-erőforrást használt, mely eszközöket használta a leggyakrabban.
+- **Döntési napló, lezárt pozíciók és tanulságok** szűrhető listában.
+
+Az emberi beavatkozás lehetőségei (mind csak a demo számlán):
+
+| Gomb | Mit csinál |
+|---|---|
+| **▶ Ötletgenerálás** | azonnal elindít egy reggeli piacátnézést, nem kell 9:00-ig várni |
+| **＋ Saját ötlet** | ember is beadhat ötletet; a PM ugyanazzal a szigorral vizsgálja, mint a Research ötleteit |
+| **🔍 Minden pozíció review** / pozíciónként **🔍 Review** | azonnal újraértékelteti az összes vagy egy kiválasztott pozíciót |
+| **Kézi döntés** | ember dönthet egy pozíció csökkentéséről vagy zárásáról, indoklással; a méretezést és a végrehajtást ugyanúgy a szervezet végzi |
+
+### Hol tart a projekt?
+
+**Működik** a teljes befektetési ciklus a demo számlán: ötlet → kritika → döntés → végrehajtás → napi felülvizsgálat → eladás → kiértékelés és tanulság, valamint az irányítópult élő követéssel és emberi beavatkozással.
+
+**Tudatos MVP-korlátok:** csak dolláros papírok (külföldi cégnél amerikai letéti jegy), meglévő pozíció nem növelhető, egy elutasított ötlet nem kerül vissza, nincs automatikus veszteség-limit (stop-loss), és megbízás előtt nincs emberi jóváhagyás (ez éles számlánál kötelező lenne).
+
+**Ami egy valódi alapkezelőben még kellene,** és ugyanígy, szabályokkal és skillekkel leírható: kockázatkezelés, compliance, szabályozói jelentések, backoffice, NAV-számítás, ügyfélriporting, treasury, vállalati események kezelése, belső audit.
+
+### Rövid szótár
+
+| Kifejezés | Jelentése |
+|---|---|
+| ágens (agent) | AI-modellre épülő program, amely egy szerepet tölt be, eszközöket használ és önállóan old meg egy feladatot |
+| LLM | nagy nyelvi modell; itt az Anthropic Claude modelljei adják az ágensek „háttértudását” |
+| skill | szövegesen leírt eljárás, amely szerint az ágens egy feladatot elvégez |
+| paper számla | demo brókerszámla, valós piaci árakkal, de virtuális pénzzel |
+| NAV | a portfólió teljes értéke |
+| review | egy nyitott pozíció újraértékelése: tartás (HOLD), csökkentés (REDUCE) vagy zárás (CLOSE) |
+| conviction | meggyőződés egy ötletben, 1–5-ös skálán; ez határozza meg a pozíció méretét |
+
+---
+
+# Technikai leírás
+
+Az alábbi rész fejlesztőknek szól.
+
 - A szerepeket Claude-alapú LLM-agentek (Research: Sonnet 5.5, Portfolio Manager: Opus 5.5) és determinisztikus szolgáltatások töltik be.
 - Minden szerep külön Docker containerben fut.
 - Az agentek A2A 1.0 protokollon kommunikálnak.
 - Minden feladat egy közös Postgres task store-ba kerül, így a működés auditált.
-- A döntések közös tudásbázisba íródnak, a későbbi tanulási ciklusok lehetősége miatt.
+- A döntések közös tudásbázisba íródnak, a tanulási ciklusokhoz.
 - A portfóliót jelenleg egyetlen Interactive Brokers **paper** számla reprezentálja.
 
 ## Struktúra
