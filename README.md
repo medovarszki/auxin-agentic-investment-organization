@@ -1,6 +1,6 @@
-# Auxin – a szervezet, mint ágenshálózat
+# AI ágensekből álló virtuális befektetéskezelő MVP
 
-Az Auxin egy **virtuális befektetési alapkezelő, amelyben minden munkatárs egy AI-ágens**. Nem egy kereskedő robot, hanem egy kis szervezet: vannak pozíciói, munkaköri leírásai, írott szabályai, ellenőrzési pontjai és közös emlékezete, pontosan úgy, mint egy valódi cégnek.
+Az Auxin egy **virtuális befektetéskezelő, amelyben minden munkatárs egy AI-ágens**. Nem egy kereskedő robot, hanem egy kis szervezet: vannak pozíciói, munkaköri leírásai, írott szabályai, ellenőrzési pontjai és közös emlékezete, pontosan úgy, mint egy valódi cégnek.
 
 A projekt egy kérdésre keres gyakorlati választ: **hogyan modellezhetőek a szervezeti funkciók AI-ágensekkel?** Minden szervezet egyénekből áll, akiknek skilljeik (szaktudásuk) vannak, és az értéket az együttműködésük adja. Ha egy szervezet folyamatait végponttól végpontig leírjuk, ágensekkel gyorsan újramodellezhető. A befektetési terület azért jó példa, mert szigorúan szabályozott, a döntések mérhetők, és világos, ki mit hagyhat jóvá. Maga a terület csak illusztráció: ugyanígy leírható lenne egy compliance-, riporting- vagy backoffice-funkció is.
 
