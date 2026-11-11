@@ -44,12 +44,23 @@ class Source(_Model):
     published_at: date
 
 
+class Revisit(_Model):
+    """Re-proposing an instrument whose idea was rejected recently (in its cooldown, 2026-11-11): what changed since
+    the rejection, with sources published after it. Without it, or without enough new sources, the runtime drops the
+    idea before it reaches the Portfolio Manager (rules.check_revisit)."""
+
+    rejected_idea_id: UUID  # the latest rejected idea of the instrument, as the scan prompt lists it
+    what_changed: str = Field(min_length=1)  # how the change answers the rejection reason / reconsider_if
+    sources: list[Source] = Field(min_length=1)  # dated after the rejection
+
+
 class Idea(_Model):
     idea_id: UUID = Field(default_factory=uuid4)
     instrument: InstrumentRef
     thesis: str = Field(min_length=1)
     rationale: str = Field(min_length=1)
     sources: list[Source] = Field(min_length=1)
+    revisit: Revisit | None = None
     created_at: datetime = Field(default_factory=_now)
 
 
@@ -123,6 +134,10 @@ class PMDecision(_Model):
     # Company risk class (skill risk-bucket, portfolio-rules.yaml risk_bucket): 1 = stable ... 4 = speculative
     risk_bucket: Literal[1, 2, 3, 4]
     proposal: ProposalBody | None = None
+    # REJECT only (2026-11-11): `thesis` = a judgement on the case, the valuation or the portfolio fit (starts the
+    # instrument's cooldown); `data` = only missing / unreliable data, e.g. no live IBKR price (no cooldown).
+    reject_basis: Literal["thesis", "data"] | None = None
+    reconsider_if: str | None = None  # REJECT: what would change the decision; Research must answer it to re-propose
 
     @model_validator(mode="after")
     def _buy_needs_proposal(self) -> "PMDecision":

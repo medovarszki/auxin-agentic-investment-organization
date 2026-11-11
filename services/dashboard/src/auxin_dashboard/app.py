@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 import uvicorn
+import yaml
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -35,6 +36,8 @@ from auxin_schemas.metadata import MessageType
 
 log = logging.getLogger("auxin.dashboard")
 STATIC = Path(__file__).parent / "static"
+# The organization's declaration (org/, agents/), copied into the image; the repo root when run from a checkout.
+ORG_ROOT = Path(os.environ.get("AUXIN_ORG_ROOT", "/auxin"))
 JAEGER_UI_URL = os.environ.get("AUXIN_JAEGER_UI_URL", "http://localhost:16686").rstrip("/")
 JAEGER_API_URL = os.environ.get("AUXIN_JAEGER_API_URL", "http://jaeger:16686").rstrip("/")
 
@@ -583,6 +586,76 @@ async def agents(days: int = 14) -> dict:
         a["totals"] = {k: sum(d[k] for d in a["daily"]) for k in ("completed", "rejected", "failed", "other")}
         result.append(a)
     return {"days": labels, "agents": result}
+
+
+def _skill(path: Path) -> dict:
+    """A SKILL.md as {name, description, body}. The front matter is split by hand: its values hold unquoted colons."""
+    text_, meta = path.read_text(), {}
+    if text_.startswith("---"):
+        _, front, text_ = text_.split("---", 2)
+        for line in front.strip().splitlines():
+            key, _, value = line.partition(":")
+            meta[key.strip()] = value.strip()
+    return {"name": meta.get("name", path.parent.name), "description": meta.get("description", ""), "body": text_.strip()}
+
+
+@app.get("/api/org")
+async def org() -> dict:
+    """The organization as it is declared: org.yaml, with each position's agent.yaml, skills, role prompt and task
+    prompts. Read from the files baked into the image, the same ones the agents run on."""
+    data = yaml.safe_load((ORG_ROOT / "org/org.yaml").read_text())
+    for unit in data["units"]:
+        for pos in unit["positions"]:
+            agent_dir = ORG_ROOT / pos["agent"]
+            desc = yaml.safe_load((agent_dir / "agent.yaml").read_text())
+            instructions = agent_dir / "CLAUDE.md"
+            pos["descriptor"] = desc
+            pos["skills"] = [_skill(agent_dir / "skills" / s / "SKILL.md") for s in desc.get("skills", [])]
+            pos["instructions"] = instructions.read_text() if instructions.exists() else None
+            pos["prompts"] = {p.stem: p.read_text() for p in sorted((agent_dir / "prompts").glob("*.md"))}
+    return data
+
+
+@app.get("/api/policy")
+async def policy() -> dict:
+    """The investment policy (portfolio-rules.yaml), how much of each limit the live portfolio uses, and how many
+    rejections each rule caused. Sector and risk bucket are counted like the PM gate does (rules.size_buy)."""
+    rules = yaml.safe_load((ORG_ROOT / "org/rules/portfolio-rules.yaml").read_text())
+    rejects = await _rows(
+        """SELECT kind, coalesce(payload->>'rule', CASE WHEN kind = 'order_reject' THEN payload->>'reason' END) AS rule,
+                  count(*) AS n
+           FROM decisions WHERE kind IN ('idea_reject', 'proposal_reject', 'order_reject') GROUP BY 1, 2 ORDER BY n DESC""")
+    out = {"rules": rules, "rejects": rejects, "error": None, "usage": None}
+    try:
+        account, positions = await read_tools([("get_account_summary", {}), ("get_positions", {})])
+        held = [p for p in positions if float(p.get("quantity") or 0) != 0]
+        contracts = await read_tools([("get_contract", {"conid": p["conid"]}) for p in held]) if held else []
+    except Exception as exc:  # noqa: BLE001 - broker down: the policy itself still shows
+        return out | {"error": f"{type(exc).__name__}: {exc}"}
+    buckets = {r["conid"]: r["bucket"] for r in await _rows(
+        """SELECT DISTINCT ON (conid) conid, payload->>'risk_bucket' AS bucket FROM decisions
+           WHERE kind = 'order' AND payload->'order'->>'side' = 'BUY' AND payload->>'risk_bucket' IS NOT NULL
+             AND conid = ANY(:conids) ORDER BY conid, created_at DESC""", conids=[int(p["conid"]) for p in held])}
+    nav = float(account.get("net_liquidation") or 0)
+    pct = lambda value: round(value / nav * 100, 2) if nav else 0.0  # noqa: E731
+    holdings, sectors, by_bucket = [], {}, {}
+    for p, c in zip(held, contracts, strict=True):
+        value = float(p.get("market_value") or 0)
+        etf, bucket = c.get("stock_type") == "ETF", buckets.get(int(p["conid"]))
+        holdings.append({"symbol": p.get("symbol"), "weight_pct": pct(value), "asset_class": "etf" if etf else "stock",
+                         "industry": c.get("industry"), "risk_bucket": int(bucket) if bucket else None})
+        if not etf and c.get("industry"):
+            sectors[c["industry"]] = sectors.get(c["industry"], 0.0) + value
+        if bucket:
+            by_bucket[int(bucket)] = by_bucket.get(int(bucket), 0.0) + value
+    cash = min(float(account.get("total_cash_value") or 0), float(account.get("available_funds") or 0))
+    out["usage"] = {
+        "nav": nav, "currency": account.get("currency"), "cash_pct": pct(cash),
+        "holdings": sorted(holdings, key=lambda h: -h["weight_pct"]),
+        "sectors": [{"name": k, "weight_pct": pct(v)} for k, v in sorted(sectors.items(), key=lambda kv: -kv[1])],
+        "buckets": {b: pct(v) for b, v in by_bucket.items()},
+    }
+    return out
 
 
 @app.get("/api/outcomes")

@@ -34,10 +34,19 @@ The fund trades through Interactive Brokers, so an idea is only usable with an I
 Before you finalize the list:
 
 1. `mcp__ibkr__get_positions`: drop any idea whose conid the fund already holds.
-2. `mcp__knowledge-base__get_recent_rejections` (30 days): drop any idea whose conid (or the same bet) was rejected,
-   unless there is material new information since the rejection. Then name that information, with its dated
-   source, in the rationale and say why it answers the rejection reason.
-3. Optional: `mcp__knowledge-base__get_company_history` or `mcp__knowledge-base__search` to see what the fund
+2. **Instruments in cooldown** (listed at the end of the task prompt; the Portfolio Manager rejected them on the
+   merits recently): drop the idea, unless something material changed since the rejection that answers its
+   `reason` or `reconsider_if`. A changed market mood can be such a change, but only with evidence that the change
+   reaches this instrument. Then fill the idea's `revisit`:
+   - `rejected_idea_id`: exactly as listed;
+   - `what_changed`: what is new since `rejected_on` and why it answers the rejection;
+   - `sources`: at least `min_new_sources` dated sources published **after** `rejected_on`.
+   Without a valid `revisit` the runtime drops the idea; do not spend a slot on a repeat with nothing new.
+   Rejections because of a portfolio rule or missing data (e.g. no live price) are not listed: those instruments
+   may come again whenever they fit.
+3. Same bet: `mcp__knowledge-base__get_recent_rejections` (30 days) also shows rejected ideas of other instruments;
+   do not re-propose the same bet through a different ticker without the same kind of new information.
+4. Optional: `mcp__knowledge-base__get_company_history` or `mcp__knowledge-base__search` to see what the fund
    already concluded about an instrument or theme.
 
 At most 3 ideas per scan.

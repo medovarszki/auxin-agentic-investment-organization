@@ -10,6 +10,7 @@ Reject early, before the full research, when the idea cannot fit the portfolio a
 - `mcp__ibkr__get_positions` and `mcp__ibkr__get_account_summary`: is there free cash? Would it double an existing bet (same company, same industry, an overlapping ETF, the same macro driver)?
 - **Risk bucket:** classify the instrument with the `risk-bucket` skill and check the bucket's room. A full or nearly full bucket is a REJECT ("bucket 4 holds 24% of NAV").
 - **Memory:** `mcp__knowledge-base__get_company_history` (conid), `mcp__knowledge-base__get_recent_rejections` and `mcp__knowledge-base__search` (ticker, theme): was the same bet rejected or closed with a loss recently? Only go on with material new information, and name it.
+- **Re-proposal:** when the idea has a `prior_rejection` (the instrument is in cooldown), check its `revisit` first: are the new sources real and dated after the rejection, and does `what_changed` answer the rejection reason and the `reconsider_if`? If not, REJECT early ("nothing material changed since the rejection on ...").
 
 ## 2. Pin down the instrument
 - `mcp__ibkr__get_contract` for the idea's conid: exchange, currency, industry, ISIN, stock vs ETF (`stock_type`). If the conid is missing or wrong, resolve it with `mcp__ibkr__search_contract`; if IBKR has no match, reject. The fund only buys USD-quoted instruments for now (no FX): reject any other currency.
@@ -33,4 +34,6 @@ Set a **target price** you can justify (valuation multiple, peer comparison, or 
   - `sources`: at least 3 dated sources you retrieved (title, url, published_at)
   - `conviction` 1-5: 1 = speculative, 3 = solid case with open questions, 5 = exceptional, well-evidenced case with limited downside; the runtime sizes the BUY by it
   - `invalidation`: the observable event that would make the fund close the position
-- **REJECT** otherwise, with the concrete reason in one or two sentences (e.g. "bucket 3 is full", "upside only 8% at 15x forward earnings", "thesis already priced in after +35% in 3 months", "no reliable source for the demand claim"), so Research can learn from it.
+- **REJECT** otherwise, with the concrete reason in one or two sentences (e.g. "bucket 3 is full", "upside only 8% at 15x forward earnings", "thesis already priced in after +35% in 3 months", "no reliable source for the demand claim"), so Research can learn from it. Also set:
+  - `reject_basis`: `thesis` (the case, valuation or portfolio fit failed: the instrument goes into a cooldown) or `data` (only missing / unreliable data blocked you, e.g. a stale IBKR price, and the case itself could pass: no cooldown). If both apply, it is `thesis`.
+  - `reconsider_if`: the concrete, observable change that would reopen it (e.g. "a live quote below $60", "Q3 orders back above 1.0 book-to-bill", "risk bucket 3 below 20% of NAV"). Research must answer this to re-propose the instrument within the cooldown.

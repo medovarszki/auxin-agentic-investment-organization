@@ -6,8 +6,8 @@ from auxin_schemas.task import (
     TERMINAL_STATES,
     InvalidTransition,
     TaskState,
-    can_resubmit,
     is_timed_out,
+    task_timeout,
     transition,
 )
 
@@ -44,13 +44,8 @@ def test_states_match_a2a_names():
     }
 
 
-def test_timeout_is_sixty_minutes():
+def test_timeout_is_ten_minutes_for_every_task():
     start = datetime(2026, 10, 14, 12, 0, tzinfo=timezone.utc)
-    assert not is_timed_out(start, start + timedelta(minutes=59, seconds=59))
-    assert is_timed_out(start, start + timedelta(minutes=60))
-
-
-def test_max_two_rejection_rounds():
-    assert can_resubmit(0)
-    assert can_resubmit(1)
-    assert not can_resubmit(2)
+    assert not is_timed_out(start, start + timedelta(minutes=9, seconds=59))
+    assert is_timed_out(start, start + timedelta(minutes=10))
+    assert task_timeout("review_trigger") == task_timeout("idea") == timedelta(minutes=10)

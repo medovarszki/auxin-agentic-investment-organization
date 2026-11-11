@@ -1,4 +1,7 @@
 """Deterministic entry checks from org/rules/portfolio-rules.yaml (the parts a single proposal can decide)."""
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+
 from auxin_schemas.domain import Holding, Idea, Proposal, ReviewResult
 
 
@@ -34,8 +37,77 @@ def precheck_idea(idea: Idea, rules: dict, *, base_currency: str, held_conids: s
         raise GateReject("already_held", f"{inst.symbol} is already in the portfolio")
 
 
-# Conviction 1-5 -> target position size in % of NAV (decision 6.a).
-CONVICTION_WEIGHT_PCT = {1: 2.0, 2: 4.0, 3: 6.0, 4: 8.0, 5: 10.0}
+@dataclass(frozen=True)
+class Cooldown:
+    """An instrument whose idea was rejected on the merits recently: a new idea for it needs a `revisit`."""
+
+    conid: int
+    symbol: str | None
+    rejected_idea_id: str
+    rejected_at: datetime
+    until: date
+    min_new_sources: int
+    repeated: bool  # rejected at least `repeat_rejections` times within `repeat_cooldown_days`
+    reason: str
+    reconsider_if: str | None
+
+    def as_prompt(self) -> dict:
+        return {"conid": self.conid, "symbol": self.symbol, "rejected_idea_id": self.rejected_idea_id,
+                "rejected_on": self.rejected_at.date().isoformat(), "cooldown_until": self.until.isoformat(),
+                "min_new_sources": self.min_new_sources, "reason": self.reason, "reconsider_if": self.reconsider_if}
+
+
+def is_thesis_rejection(row: dict) -> bool:
+    """An idea_reject that judged the case (PM challenge). A deterministic pre-check (`rule`) or a rejection on missing
+    data only (`reject_basis: data`, e.g. no live price) starts no cooldown: those are re-checked every time anyway."""
+    payload = row.get("payload") or {}
+    return row.get("kind") == "idea_reject" and bool(row.get("conid")) and not payload.get("rule") \
+        and payload.get("reject_basis") != "data"
+
+
+def active_cooldowns(rejections: list[dict], rules: dict, now: datetime) -> dict[int, Cooldown]:
+    """Per conid, the cooldown of its latest thesis rejection, if still running. `rejections`: decision-log rows
+    (with payload) of the last `repeat_cooldown_days` days. A repeatedly rejected instrument gets the longer window
+    and needs more new sources (portfolio-rules.yaml rejections.revisit)."""
+    cfg = rules["rejections"]["revisit"]
+    by_conid: dict[int, list[dict]] = {}
+    for row in rejections:
+        if is_thesis_rejection(row):
+            by_conid.setdefault(int(row["conid"]), []).append(row)
+    out = {}
+    for conid, rows in by_conid.items():
+        dated = sorted(((datetime.fromisoformat(r["created_at"]), r) for r in rows), key=lambda x: x[0], reverse=True)
+        recent = [at for at, _ in dated if at >= now - timedelta(days=cfg["repeat_cooldown_days"])]
+        repeated = len(recent) >= cfg["repeat_rejections"]
+        rejected_at, latest = dated[0]
+        until = rejected_at + timedelta(days=cfg["repeat_cooldown_days" if repeated else "cooldown_days"])
+        if until <= now:
+            continue
+        payload = latest.get("payload") or {}
+        out[conid] = Cooldown(
+            conid=conid, symbol=latest.get("symbol"), rejected_idea_id=str(latest.get("idea_id")),
+            rejected_at=rejected_at, until=until.date(), repeated=repeated,
+            min_new_sources=cfg["repeat_min_new_sources" if repeated else "min_new_sources"],
+            reason=latest.get("summary") or payload.get("reason") or "", reconsider_if=payload.get("reconsider_if"))
+    return out
+
+
+def check_revisit(idea: Idea, cooldown: Cooldown | None) -> str | None:
+    """None when the idea may go to the PM; otherwise why the runtime drops it. An instrument in cooldown is only
+    re-proposed with a `revisit` that names its latest rejection and enough sources published after it."""
+    if cooldown is None:
+        return None
+    on = cooldown.rejected_at.date()
+    revisit = idea.revisit
+    if revisit is None:
+        return f"rejected on {on}, in cooldown until {cooldown.until}, and no revisit given"
+    if str(revisit.rejected_idea_id) != cooldown.rejected_idea_id:
+        return f"revisit names idea {revisit.rejected_idea_id}, the latest rejection is {cooldown.rejected_idea_id}"
+    new = {str(s.url) for s in revisit.sources if s.published_at > on}
+    if len(new) < cooldown.min_new_sources:
+        return f"revisit has {len(new)} source(s) published after the rejection on {on}, " \
+               f"{cooldown.min_new_sources} needed"
+    return None
 
 
 def size_buy(
@@ -66,7 +138,9 @@ def size_buy(
     if upside < min_upside:
         raise GateReject("min_upside_pct", f"upside {upside:.1f}% at {price} < {min_upside}%")
 
-    weight_pct = min(CONVICTION_WEIGHT_PCT[proposal.conviction], rules["position"]["max_new_position_weight_pct"])
+    # Conviction 1-5 -> target position size in % of NAV, from the policy (decision 6.a).
+    position = rules["position"]
+    weight_pct = min(position["conviction_weight_pct"][proposal.conviction], position["max_new_position_weight_pct"])
     amount = nav * weight_pct / 100
     limits = {"conviction": amount, "cash": cash}
     sector_used = None

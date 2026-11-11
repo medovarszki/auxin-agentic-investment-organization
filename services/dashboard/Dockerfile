@@ -5,6 +5,11 @@
 ARG BASE_IMAGE=auxin-agent-base:latest
 FROM ${BASE_IMAGE}
 
+# The organization's declaration for the "Szervezet" and "Politika" views (GET /api/org, /api/policy): read-only,
+# owned by root, the same files the agent images are built from.
+COPY org /auxin/org
+COPY agents /auxin/agents
+
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
 ENTRYPOINT ["auxin-dashboard"]

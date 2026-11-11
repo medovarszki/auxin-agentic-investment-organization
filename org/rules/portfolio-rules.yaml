@@ -22,6 +22,8 @@ entry:
 
 position:
   max_new_position_weight_pct: 10.0
+  # Méretezés: a PM conviction-je (1-5) -> az új pozíció cél-súlya a NAV %-ában (a runtime-kapu alkalmazza)
+  conviction_weight_pct: {1: 2.0, 2: 4.0, 3: 6.0, 4: 8.0, 5: 10.0}
   # weight = position_market_value / NAV * 100, a megbízás teljesülése utáni becsült állapotra
 
 sector:
@@ -53,7 +55,17 @@ risk_bucket:
   # Mind a 4 bucket <= 25% NAV (Mihály, 2026-10-22): a cash a puffer, teljes befektetettség csak tökéletes egyensúlynál.
 
 rejections:
-  max_rounds_per_item: 2       # utána az ötlet / javaslat failed
+  max_rounds_per_item: 0       # nincs visszadobási kör: az elutasítás végleges, csak új ötletként jöhet újra
+  # Újrajavaslás (Mihály, 2026-11-11): az érdemi (thesis) elutasítás után az instrumentum cooldownba kerül; ezalatt
+  # a Research csak `revisit` blokkal javasolhatja újra (mi változott + az elutasítás utáni dátumú források), különben
+  # a runtime a PM előtt kiszűri. A szabálykapu (pre-check) és a csak adathiány miatti (reject_basis: data)
+  # elutasítás nem indít cooldownt. Ismételt elutasításnál hosszabb ablak és több új forrás kell.
+  revisit:
+    cooldown_days: 30
+    min_new_sources: 1
+    repeat_rejections: 2         # ennyi érdemi elutasítás repeat_cooldown_days napon belül = ismételt
+    repeat_cooldown_days: 60
+    repeat_min_new_sources: 2
 
 approvals:
   # Tech demo, csak paper számla: nincs emberi jóváhagyás (Mihály, 2026-10-14). Élő számlánál újra true.
@@ -62,5 +74,5 @@ approvals:
 
 orders:
   default_type: MKT
-  task_timeout_minutes: 60    # a napi review taszkja (review_trigger): 240
+  task_timeout_minutes: 10    # minden taszkra, a WORKING állapottól; utána FAILED
   automatic_retry: false

@@ -2,10 +2,9 @@
 from datetime import datetime, timedelta
 from enum import StrEnum
 
-TASK_TIMEOUT = timedelta(minutes=60)  # the chain scan -> Research -> PM -> Execution is synchronous (6.3)
-# The daily review runs one Research re-evaluation per open position, one after the other (6.4)
-TASK_TIMEOUTS = {"review_trigger": timedelta(hours=4)}
-MAX_REJECTION_ROUNDS = 2
+# Every task, from WORKING (Mihály, 2026-11-11). The chains are synchronous: a scan or review task also waits for the
+# tasks it starts downstream, so the whole chain has to fit.
+TASK_TIMEOUT = timedelta(minutes=10)
 
 
 class TaskState(StrEnum):
@@ -41,13 +40,8 @@ def transition(current: TaskState, new: TaskState) -> TaskState:
 
 
 def task_timeout(message_type: str) -> timedelta:
-    return TASK_TIMEOUTS.get(message_type, TASK_TIMEOUT)
+    return TASK_TIMEOUT
 
 
 def is_timed_out(working_since: datetime, now: datetime) -> bool:
     return now - working_since >= TASK_TIMEOUT
-
-
-def can_resubmit(rejection_count: int) -> bool:
-    """An item may come back after a rejection until it was rejected MAX_REJECTION_ROUNDS times."""
-    return rejection_count < MAX_REJECTION_ROUNDS

@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -20,8 +21,10 @@ from auxin_schemas.task import TaskState
 from auxin_runtime.descriptor import AgentDescriptor, build_options, require_subscription_auth
 from auxin_runtime.execution import execute, execute_pending
 from auxin_runtime.ibkr import read_tools
-from auxin_runtime.knowledge import get_decisions, record_decision, record_lesson
-from auxin_schemas.rules import GateReject, precheck_idea, size_buy, size_sell
+from auxin_runtime.knowledge import get_decisions, knowledge_url, record_decision, record_lesson
+from auxin_schemas.rules import (
+    Cooldown, GateReject, active_cooldowns, check_revisit, precheck_idea, size_buy, size_sell,
+)
 from auxin_runtime.runner import run_task, token_usage
 
 log = logging.getLogger("auxin.runtime")
@@ -34,6 +37,34 @@ def _prompt(agent_dir: Path, name: str, payload: dict) -> str:
 
 def _ctx(msg: Incoming) -> dict:
     return {"correlation_id": msg.meta.correlation_id, "trace_id": msg.meta.trace_id, "task_id": msg.task_id}
+
+
+def _rules(agent_dir: Path) -> dict:
+    return yaml.safe_load(Path(os.environ.get("AUXIN_RULES_FILE", agent_dir / "portfolio-rules.yaml")).read_text())
+
+
+async def _cooldowns(rules: dict, conid: int | None = None) -> dict[int, Cooldown]:
+    """The running cooldowns (of one conid, if given) from the decision log; none without the knowledge service."""
+    if knowledge_url() is None:
+        return {}
+    rows = await get_decisions(kind=[DecisionKind.IDEA_REJECT.value], conid=conid,
+                               days=rules["rejections"]["revisit"]["repeat_cooldown_days"], limit=500)
+    return active_cooldowns(rows, rules, datetime.now(timezone.utc))
+
+
+def _cooldown_note(cooldowns: dict[int, Cooldown]) -> str:
+    """The instruments in cooldown, appended to the scan prompt, so Research need not rely on a tool call."""
+    if not cooldowns:
+        return ""
+    listed = [c.as_prompt() for c in sorted(cooldowns.values(), key=lambda c: c.rejected_at, reverse=True)]
+    return (
+        "\n\n## Instruments in cooldown\n"
+        "The Portfolio Manager rejected these on the merits recently. Propose one again only if something material "
+        "changed since the rejection that answers its reason or `reconsider_if`. Then fill the idea's `revisit`: "
+        "`rejected_idea_id` exactly as listed, `what_changed`, and at least `min_new_sources` sources published after "
+        "`rejected_on`. Without that the runtime drops the idea before it reaches the Portfolio Manager.\n\n"
+        f"```json\n{json.dumps(listed, indent=2, ensure_ascii=False)}\n```\n"
+    )
 
 
 async def _llm(desc: AgentDescriptor, prompt: str, options, model, msg: Incoming):
@@ -53,6 +84,7 @@ def research(desc: AgentDescriptor, agent_dir: Path) -> Handler:
     scan_options = build_options(desc, agent_dir, MarketScanResult.model_json_schema())
     review_options = build_options(desc, agent_dir, ReviewResult.model_json_schema())
     lesson_options = build_options(desc, agent_dir, LessonDraft.model_json_schema())
+    rules = _rules(agent_dir)
 
     async def lesson(msg: Incoming) -> dict:
         outcome = DecisionOutcome.model_validate(msg.payload)
@@ -77,17 +109,26 @@ def research(desc: AgentDescriptor, agent_dir: Path) -> Handler:
         return {"review": out.model_dump(mode="json"), **usage}
 
     async def scan(msg: Incoming) -> dict:
-        """The scan; every idea recorded in the decision log before it goes to the PM."""
+        """The scan; an idea for an instrument in cooldown without a valid `revisit` is dropped (not recorded, listed
+        under `skipped`); every other idea is recorded in the decision log before it goes to the PM."""
         trigger = msg.payload.get("trigger", "scan")
-        prompt = (agent_dir / "prompts" / f"{trigger}.md").read_text()
+        cooldowns = await _cooldowns(rules)
+        prompt = (agent_dir / "prompts" / f"{trigger}.md").read_text() + _cooldown_note(cooldowns)
         record = await run_task(desc.name, prompt, scan_options, MarketScanResult, task_id=msg.task_id,
                                 trace_id=msg.meta.trace_id)
         if record.state is not TaskState.COMPLETED:
             raise RuntimeError(record.error)
         result = MarketScanResult.model_validate(record.output)
 
-        handoffs = []
+        handoffs, skipped = [], []
         for idea in result.ideas:
+            inst = idea.instrument
+            why = check_revisit(idea, cooldowns.get(inst.conid) if inst.conid else None)
+            if why:
+                log.info(json.dumps({"event": "idea_skipped", "symbol": inst.symbol, "conid": inst.conid,
+                                     "reason": why, **_ctx(msg)}))
+                skipped.append({"symbol": inst.symbol, "conid": inst.conid, "reason": f"cooldown: {why}"})
+                continue
             await record_decision(DecisionRecord(
                 id=idea.idea_id, kind=DecisionKind.IDEA, agent=desc.name, summary=idea.thesis,
                 conid=idea.instrument.conid, symbol=idea.instrument.symbol, idea_id=idea.idea_id,
@@ -100,7 +141,7 @@ def research(desc: AgentDescriptor, agent_dir: Path) -> Handler:
             handoffs.append({"symbol": idea.instrument.symbol, **task_summary(task)})
         return {"scan": record.output, "cost_usd": record.cost_usd, "num_turns": record.num_turns,
                 "tokens": token_usage(record.usage),
-                "handoffs": handoffs}
+                "handoffs": handoffs, "skipped": skipped}
 
     async def handle(msg: Incoming) -> dict:
         if msg.meta.type == MessageType.SCAN_TRIGGER:
@@ -136,7 +177,7 @@ def portfolio_manager(desc: AgentDescriptor, agent_dir: Path) -> Handler:
     the proposal it built) -> deterministic rule gate and sizing -> order to Execution."""
     require_subscription_auth()
     options = build_options(desc, agent_dir, PMDecision.model_json_schema())
-    rules = yaml.safe_load(Path(os.environ.get("AUXIN_RULES_FILE", agent_dir / "portfolio-rules.yaml")).read_text())
+    rules = _rules(agent_dir)
 
     async def handle(msg: Incoming) -> dict:
         if msg.meta.type == MessageType.REVIEW_TRIGGER:
@@ -161,9 +202,16 @@ def portfolio_manager(desc: AgentDescriptor, agent_dir: Path) -> Handler:
         except GateReject as exc:
             await reject_idea(f"pre-check: {exc.reason}", exc.rule, {}, {"account": account, "positions": positions})
 
-        out, usage = await _llm(desc, _prompt(agent_dir, "idea", msg.payload), options, PMDecision, msg)
+        # The instrument's running cooldown (latest thesis rejection, its reason and reconsider_if), so the challenge
+        # can judge whether a revisit (or a manual idea) answers it.
+        conid = idea.instrument.conid
+        cooldown = (await _cooldowns(rules, conid)).get(conid) if conid else None
+        payload = msg.payload | ({"prior_rejection": cooldown.as_prompt()} if cooldown else {})
+        out, usage = await _llm(desc, _prompt(agent_dir, "idea", payload), options, PMDecision, msg)
         if out.decision == "REJECT":
-            await reject_idea(out.rationale, None, {"risk_bucket": out.risk_bucket, **usage})
+            await reject_idea(out.rationale, None, {"risk_bucket": out.risk_bucket,
+                                                    "reject_basis": out.reject_basis or "thesis",
+                                                    "reconsider_if": out.reconsider_if, **usage})
 
         proposal = Proposal(idea_id=idea.idea_id, **out.proposal.model_dump())
         inst = proposal.instrument

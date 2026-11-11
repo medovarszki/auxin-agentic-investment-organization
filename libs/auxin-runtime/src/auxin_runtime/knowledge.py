@@ -60,6 +60,6 @@ async def get_decisions(**params) -> list[dict]:
     if url is None:
         raise RuntimeError("AUXIN_KNOWLEDGE_URL is not set")
     async with httpx.AsyncClient(base_url=url, timeout=httpx.Timeout(15.0), trust_env=False) as http:
-        response = await http.get("/decisions", params=params)
+        response = await http.get("/decisions", params={k: v for k, v in params.items() if v is not None})
         response.raise_for_status()
     return response.json()

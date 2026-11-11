@@ -166,3 +166,54 @@ def test_manual_idea_needs_no_sources_and_is_told_apart():
         parse_idea(research.model_dump(mode="json") | {"sources": []})
     with pytest.raises(ValidationError):
         Idea(instrument=ref, thesis="t", rationale="r", sources=[])
+
+
+def test_revisit_cooldown():
+    from datetime import datetime, timezone
+
+    from auxin_schemas.domain import Idea, InstrumentRef, Revisit
+    from auxin_schemas.rules import active_cooldowns, check_revisit
+
+    now = datetime(2026, 11, 20, 12, tzinfo=timezone.utc)
+    xle, rejected = 4215217, str(uuid4())
+
+    def reject(day: int, idea_id: str = rejected, **payload) -> dict:
+        return {"kind": "idea_reject", "conid": xle, "symbol": "XLE", "idea_id": idea_id, "summary": "binary bet",
+                "created_at": datetime(2026, 11, day, 16, tzinfo=timezone.utc).isoformat(),
+                "payload": {"reconsider_if": "a fresh Hormuz disruption"} | payload}
+
+    def idea(*days: int, rejected_idea_id: str = rejected) -> Idea:
+        ref = InstrumentRef(symbol="XLE", name="Energy Select Sector SPDR", asset_class="etf", conid=xle)
+        revisit = Revisit(rejected_idea_id=rejected_idea_id, what_changed="strikes resumed", sources=[
+            Source(title=f"s{d}", url=f"https://example.com/{d}", published_at=date(2026, 11, d)) for d in days
+        ]) if days else None
+        return Idea(instrument=ref, thesis="t", rationale="r", sources=SOURCES[:1], revisit=revisit)
+
+    # a pre-check (rule) or a data-only rejection starts no cooldown; old rows without reject_basis count as thesis
+    assert active_cooldowns([reject(11, rule="currency"), reject(11, reject_basis="data")], RULES, now) == {}
+    cooldown = active_cooldowns([reject(11)], RULES, now)[xle]
+    assert (cooldown.until, cooldown.min_new_sources, cooldown.repeated) == (date(2026, 12, 11), 1, False)
+    assert cooldown.as_prompt()["reconsider_if"] == "a fresh Hormuz disruption"
+    assert active_cooldowns([reject(11)], RULES, datetime(2026, 12, 12, tzinfo=timezone.utc)) == {}
+
+    assert check_revisit(idea(), None) is None  # not in cooldown
+    assert "no revisit" in check_revisit(idea(), cooldown)
+    assert "1 needed" in check_revisit(idea(10, 11), cooldown)  # sources from before / the day of the rejection
+    assert "latest rejection" in check_revisit(idea(12, rejected_idea_id=str(uuid4())), cooldown)
+    assert check_revisit(idea(12), cooldown) is None  # next day, with a new source
+
+    # rejected twice within 60 days: the longer window and two new sources
+    repeated = active_cooldowns([reject(11), reject(1, idea_id=str(uuid4()))], RULES, now)[xle]
+    assert (repeated.until, repeated.min_new_sources, repeated.rejected_idea_id) == (date(2027, 1, 10), 2, rejected)
+    assert "2 needed" in check_revisit(idea(12), repeated)
+    assert check_revisit(idea(12, 13), repeated) is None
+
+
+def test_pm_reject_basis():
+    from auxin_schemas.domain import PMDecision
+
+    out = PMDecision(decision="REJECT", rationale="stale quote", risk_bucket=2, reject_basis="data",
+                     reconsider_if="a live IBKR quote")
+    assert out.reject_basis == "data"
+    with pytest.raises(ValidationError):
+        PMDecision(decision="REJECT", rationale="x", risk_bucket=2, reject_basis="maybe")

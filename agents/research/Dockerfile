@@ -3,11 +3,12 @@
 ARG BASE_IMAGE=auxin-agent-base:latest
 FROM ${BASE_IMAGE}
 
-# Files stay owned by root: the agent can read but not change its own role, prompts or skills.
+# Files stay owned by root: the agent can read but not change its own role, prompts, skills or the portfolio rules.
 USER root
 COPY agents/research/agent.yaml agents/research/CLAUDE.md /agent/
 COPY agents/research/prompts /agent/prompts
 COPY agents/research/skills /agent/.claude/skills
+COPY org/rules/portfolio-rules.yaml /agent/portfolio-rules.yaml
 USER agent
 
 CMD ["serve"]

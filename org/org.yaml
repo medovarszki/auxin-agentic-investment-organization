@@ -8,8 +8,7 @@ units:
     positions:
       - id: research  # Market & Sentiment és Research egy agentben (Mihály, 2026-10-26)
         agent: agents/research
-        reports_to: portfolio-manager
-        also_acts_as: [verifier]
+        reports_to: portfolio-manager  # nem verifikál: a megbízást az Execution ellenőrzi determinisztikusan
       - id: portfolio-manager
         agent: agents/portfolio-manager
         reports_to: human
@@ -23,6 +22,28 @@ units:
 
 rules:
   portfolio: org/rules/portfolio-rules.yaml
+
+# Döntési jogok: ki dönt, ki javasol, ki ellenőriz, ki hajt végre (a dashboard „Szervezet” füle ezt rajzolja ki).
+# rule-gate = a PM runtime-jában futó determinisztikus kapu (előszűrés, szabálykapu, méretezés), nem külön pozíció.
+decision_rights:
+  actors:
+    - {id: research, name: Research}
+    - {id: portfolio-manager, name: Portfolio Manager}
+    - {id: rule-gate, name: Szabálykapu (kód)}
+    - {id: execution, name: Execution}
+    - {id: human, name: Ember}
+  decisions:
+    - {name: Befektetési ötlet felvetése, rights: {research: proposes, human: proposes}}
+    - {name: "Vétel: BUY vagy REJECT", rights: {portfolio-manager: decides, rule-gate: checks}}
+    - {name: "Célár, horizont, conviction", rights: {portfolio-manager: decides}}
+    - {name: Kockázati bucket besorolása, rights: {portfolio-manager: decides, rule-gate: checks}}
+    - {name: Vételi pozícióméret, rights: {rule-gate: decides}}
+    - {name: "Pozíció tartása, csökkentése, zárása", rights: {research: decides, human: decides}}
+    - {name: Eladási mennyiség, rights: {rule-gate: decides}}
+    - {name: Megbízás leadása a brokernél, rights: {execution: executes}}
+    - {name: Megbízás végső ellenőrzése, rights: {execution: checks}}
+    - {name: Tanulság a lezárt pozícióból, rights: {research: decides}}
+    - {name: "Szabály, skill, prompt módosítása", rights: {human: decides}}
 
 human:
   role: approver

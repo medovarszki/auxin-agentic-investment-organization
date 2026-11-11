@@ -6,7 +6,7 @@ A projekt egy kérdésre keres gyakorlati választ: **hogyan modellezhetőek a s
 
 > **Biztonság:** az Auxin egy Interactive Brokers **paper (demo) számlán** kereskedik, valódi pénz nincs benne. Ez egy működő MVP (minimális, de valóban működő első verzió), nem befektetési tanácsadás.
 
-Vezetői összefoglaló diákon: [Auxin vezetői összefoglaló](https://claude.ai/artifact/Y4VsYs6N4nfZ2NCP38nKbY).
+Vezetői összefoglaló diákon: [MVP vezetői összefoglaló](https://claude.ai/artifact/Y4VsYs6N4nfZ2NCP38nKbY).
 
 ## Röviden: hogyan működik?
 
@@ -44,6 +44,7 @@ Szándékosan **két különböző AI-modell** dolgozik a két ágensben: így a
 - Új pozíció csak akkor, ha legalább **15% hozampotenciál** van a célárig.
 - A pozíció mérete a meggyőződéstől függ: 1–5-ös skálán a portfólió 2–10%-a.
 - Egy iparágba legfeljebb a portfólió 25%-a, és a négy kockázati kategória (stabil, mérsékelt, növekedési, spekulatív) mindegyikébe szintén legfeljebb 25% kerülhet.
+- Egy érdemben elutasított papír 30 napig (ismételt elutasítás után 60 napig) csak akkor jöhet újra, ha a Research megmutatja, mi változott azóta, az elutasítás utáni forrással. Így egy hirtelen fordulat után másnap is visszajöhet, de változatlan piacon nem ismétlődik naponta ugyanaz az ötlet.
 - Minden döntés indoklással együtt a közös naplóba kerül; szabályt, eljárást vagy ágens-utasítást csak ember (Mihály) módosíthat.
 
 Ezeket a szabályokat nem az AI-ra bízzuk, hanem **kód kényszeríti ki**: ha egy döntés sértené valamelyiket, nem lesz belőle megbízás.
@@ -68,6 +69,8 @@ Emiatt egy szervezetet nem szoftverként, hanem szervezetként lehet megtervezni
 
 A böngészőben futó irányítópulton bárki követheti a szervezet működését:
 
+- **Szervezet:** szervezeti ábra a jelentési vonalakkal, pozíciónként munkaköri leírás (szerep, skillek teljes szöveggel, eszközök, üzenetek, jogosultságok), a döntési jogok mátrixa és a hozzáférések.
+- **Politika:** a befektetési szabályok olvasható formában, az élő portfólió limit-kihasználtságával (pozíció, iparág, kockázati kategória, cash), és azzal, melyik ellenőrzési pont kényszeríti ki őket.
 - **Portfólió élőben:** vagyon, szabad pénz, pozíciók, súlyok, nyereség/veszteség.
 - **Élő nézet:** felül egy futószalag-sáv mutatja, ki dolgozik éppen (Research → PM → Execution), ki adta át a munkát és vár, ki végzett; alatta ágensenként látszik, mit csinál és mit „gondol” éppen az AI (keresések, olvasott források, köztes következtetések).
 - **Ötletmenedzser:** minden ötlet, elfogadott és elutasított, kattintható folyamatábrával; egy ötlet teljes története visszajátszható.
@@ -87,7 +90,7 @@ Az emberi beavatkozás lehetőségei (mind csak a demo számlán):
 
 **Működik** a teljes befektetési ciklus a demo számlán: ötlet → kritika → döntés → végrehajtás → napi felülvizsgálat → eladás → kiértékelés és tanulság, valamint az irányítópult élő követéssel és emberi beavatkozással.
 
-**Tudatos MVP-korlátok:** csak dolláros papírok (külföldi cégnél amerikai letéti jegy), meglévő pozíció nem növelhető, egy elutasított ötlet nem kerül vissza, nincs automatikus veszteség-limit (stop-loss), és megbízás előtt nincs emberi jóváhagyás (ez éles számlánál kötelező lenne).
+**Tudatos MVP-korlátok:** csak dolláros papírok (külföldi cégnél amerikai letéti jegy), meglévő pozíció nem növelhető, egy elutasított ötletet nem lehet átdolgozva visszaküldeni (újra csak új ötletként jöhet, a cooldown-szabály szerint), nincs automatikus veszteség-limit (stop-loss), és megbízás előtt nincs emberi jóváhagyás (ez éles számlánál kötelező lenne).
 
 **Ami egy valódi alapkezelőben még kellene,** és ugyanígy, szabályokkal és skillekkel leírható: kockázatkezelés, compliance, szabályozói jelentések, backoffice, NAV-számítás, ügyfélriporting, treasury, vállalati események kezelése, belső audit.
 
@@ -157,6 +160,10 @@ make egress-test           # example.com tiltva, api.anthropic.com átmegy
 ## Felületek
 
 ### Dashboard (<http://localhost:8080>)
+
+**Szervezet.** A szervezet a leíróiból rajzolva (`GET /api/org`: `org/org.yaml`, `agents/<név>/agent.yaml`, `SKILL.md`, `CLAUDE.md`, `prompts/`; a dashboard image-be másolva, `AUXIN_ORG_ROOT`): szervezeti ábra, pozíció-kártyák (a skillek és promptok teljes szövege kattintásra), döntési jogok (`org.yaml` `decision_rights`), hozzáférések, átadások.
+
+**Politika.** A `portfolio-rules.yaml` szabályonként (`GET /api/policy`): érték, az élő portfólió kihasználtsága a limitekhez képest (a szektor és a kockázati bucket ugyanúgy számolva, mint a PM-kapuban), a kikényszerítő ellenőrzési pont és az általa okozott elutasítások száma.
 
 **Portfólió.** A portfólió élőben, az IBKR-ből: NAV, cash, pozíciók, súly, P&L és az utolsó review. Pozíciónként két művelet érhető el. A **🔍 Review** egyetlen pozíciót értékeltet újra (`review_trigger` `conid`-dal, függő megbízások nélkül). A **Kézi döntés** REDUCE (célsúllyal) vagy CLOSE döntést rögzít indoklással: `review`-ként, `Kézi` szereppel kerül a döntési naplóba, majd `review_result`-ként megy a PM-nek, aki LLM nélkül, a szokásos determinisztikus méretezéssel ad `SELL` megbízást az Executionnek. A lezárás után a `make run-job job=evaluate` csinál belőle tanulságot.
 
@@ -256,7 +263,7 @@ Fő elvek:
 
 ## Folyamatok
 
-Minden folyamatnak egy `trace_id`-ja van: ez köti össze a task store sorait, a döntési napló bejegyzéseit és a Jaeger-trace-t. Az A2A-ban a címzett nyit új taszkot; a hívás szinkron (a küldő megvárja az eredményt). Timeout: 60 perc, a `review_trigger`-é 4 óra. Hiba esetén a taszk `FAILED`, újrapróbálás nincs; a következő ütemezett futás újra előveszi.
+Minden folyamatnak egy `trace_id`-ja van: ez köti össze a task store sorait, a döntési napló bejegyzéseit és a Jaeger-trace-t. Az A2A-ban a címzett nyit új taszkot; a hívás szinkron (a küldő megvárja az eredményt). Timeout: minden taszkra 10 perc. Hiba esetén a taszk `FAILED`, újrapróbálás nincs; a következő ütemezett futás újra előveszi.
 
 ### Vétel (munkanapokon 09:00)
 
@@ -273,8 +280,9 @@ sequenceDiagram
     S->>R: scan_trigger
     R->>R: hírek, indexek, narratíva (WebSearch, IBKR MCP)
     R->>IB: pozíciók, árak, hírek (IBKR MCP)
-    R->>KB: 30 napos elutasítások, cégtörténet (MCP)
+    R->>KB: cooldownban lévő papírok (a runtime a promptba teszi), cégtörténet (MCP)
     loop legfeljebb 3 ötlet
+        R->>R: cooldown-szűrő (runtime): revisit nélkül vagy új forrás nélkül kihagyja
         R->>KB: idea (a runtime írja)
         R->>PM: idea
         PM->>PM: előszűrés (eszközosztály, deviza, már tartott)
@@ -284,7 +292,7 @@ sequenceDiagram
             PM->>IB: számla, pozíciók, contract, ár (MCP)
             PM->>PM: challenge: portfólió-illeszkedés, majd teljes kutatás (web, IBKR, tudásbázis)
             alt REJECT (gyenge tézis, < 15% upside, nincs hely)
-                PM-->>KB: idea_reject
+                PM-->>KB: idea_reject (reject_basis, reconsider_if)
             else BUY saját javaslattal + kockázati bucket
                 PM-->>KB: proposal
                 PM->>PM: szabálykapu és méretezés (conviction → % NAV)
@@ -387,7 +395,7 @@ sequenceDiagram
 
 ## Szervezeti modell
 
-Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: [`org/org.yaml`](org/org.yaml) (egységek, pozíciók, jelentési vonalak), [`org/rules/portfolio-rules.yaml`](org/rules/portfolio-rules.yaml) (befektetési szabályok), `agents/<név>/agent.yaml` (szerepenkénti leíró). Az eredeti, 1. fázisbeli terv: [`docs/ORG.md`](docs/ORG.md).
+Ez a fejezet a szervezet naprakész leírása. Gépileg olvasható megfelelői: [`org/org.yaml`](org/org.yaml) (egységek, pozíciók, jelentési vonalak, döntési jogok), [`org/rules/portfolio-rules.yaml`](org/rules/portfolio-rules.yaml) (befektetési szabályok), `agents/<név>/agent.yaml` (szerepenkénti leíró). Az eredeti, 1. fázisbeli terv: [`docs/ORG.md`](docs/ORG.md).
 
 ### Szervezeti ábra
 
@@ -454,7 +462,7 @@ classDiagram
         felelős: legfeljebb 3 ötlet IBKR conidra oldva
         felelős: napi pozíció-újraértékelés HOLD / REDUCE / CLOSE
         felelős: tanulság a lezárt pozíciókból
-        kihagyja: már tartott, 30 napon belül elutasított
+        kihagyja: már tartott; cooldownban lévőt csak revisit-tel javasol
         nem: challenge, célár, méretezés, megbízás
         skill: market-scan
         skill: narrative-and-sentiment
@@ -470,7 +478,7 @@ classDiagram
         <<LLM: Claude Opus 5.5 + determinisztikus kapuk>>
         előszűrés LLM előtt: eszközosztály, bázisdeviza, már tartott
         challenge: előbb portfólió-illeszkedés, utána teljes kutatás
-        döntés: BUY saját javaslattal vagy REJECT indoklással
+        döntés: BUY saját javaslattal vagy REJECT indoklással (reject_basis, reconsider_if)
         javaslat: célár, horizont, legalább 3 kockázat és 3 datált forrás, conviction 1-5
         skill: idea-challenge
         skill: risk-bucket
@@ -537,13 +545,14 @@ A Research 2026-10-26 óta egy agent a korábbi Market & Sentimenttel, és ugyan
 
 - Univerzum: globális részvények és ETF-ek, long only, egyelőre USD-ben jegyzett instrumentumokon át (US listing, ADR, US-ETF); horizont: hetektől kb. egy évig.
 - Belépés: legalább 15% hozampotenciál a célárig.
-- Méret conviction szerint: 1–5 → 2 / 4 / 6 / 8 / 10% NAV; új pozíció ≤ 10% NAV.
+- Méret conviction szerint: 1–5 → 2 / 4 / 6 / 8 / 10% NAV (`position.conviction_weight_pct` a szabályfájlban); új pozíció ≤ 10% NAV.
 - Szektor ≤ 25% NAV (IBKR `industry`, csak részvények; az ETF-ekre szektorlimit nincs).
 - Kockázati bucket ≤ 25% NAV bucketenként (részvény és ETF): 1 stabil, 2 mérsékelt, 3 növekedési, 4 spekulatív; a besorolás a PM ítélete, a vételi orderrel a naplóba kerül; a szabály előtt vett pozíció nem számít bele.
 - Csak szabad cash, nincs tőkeáttétel; market order, DAY; csak paper (`DU…`) számla.
 - Review: minden nyitott pozíció minden nap; CLOSE = a teljes pozíció, REDUCE = lefelé kerekítve (jelenlegi súly − cél-súly) × NAV / ár, legalább 1 db. Nincs veszteség-trigger és stop-loss.
 - Feedback: lezárt egy pozíció, ha az eladások kiadják a vett mennyiséget; hozam = (bevétel − költség − jutalék) / költség, benchmark nélkül. Szabály-, skill- vagy promptmódosítást csak Mihály hagy jóvá.
-- MVP-korlátok: csak a számla bázisdevizájában (USD) jegyzett instrumentum, nem-US cégnél ADR (nincs FX-átváltás), meglévő pozíció nem növelhető, nincs visszadobási kör (az elutasítás végleges).
+- Újrajavaslás (`rejections.revisit`): a PM érdemi elutasítása (`reject_basis: thesis`) 30 napos cooldownt indít az instrumentumra; 60 napon belüli második elutasítás után 60 nap. Cooldownban a Research csak `revisit` blokkal javasolhatja újra (a legutóbbi elutasított ötlet id-ja, mi változott, legalább 1, ismételtnél 2 forrás az elutasítás napja utánról); ennek hiányában a runtime a PM előtt kiszűri (a scan artifactjában `skipped`). A PM megkapja az előző elutasítást (`prior_rejection`: ok, `reconsider_if`). Nem indít cooldownt: a determinisztikus előszűrés és a csak adathiány miatti elutasítás (`reject_basis: data`, pl. nincs élő ár). A kézi ötletre a szűrő nem vonatkozik, de a PM azt is az előző elutasításhoz méri.
+- MVP-korlátok: csak a számla bázisdevizájában (USD) jegyzett instrumentum, nem-US cégnél ADR (nincs FX-átváltás), meglévő pozíció nem növelhető, nincs visszadobási kör (az elutasítás végleges, újra csak új ötletként, a cooldown szerint).
 - Megbízás előtt nincs emberi jóváhagyás (tech demo, paper számla); élő számlánál újra kötelező.
 
 ### Ellenőrzési pontok
@@ -552,6 +561,8 @@ A Research 2026-10-26 óta egy agent a korábbi Market & Sentimenttel, és ugyan
 flowchart LR
     idea(["ötlet<br/>Research vagy kézi"])
     review(["review: REDUCE / CLOSE<br/>Research vagy kézi"])
+    g0{"cooldown-szűrő<br/>Research runtime, determinisztikus"}
+    skip["kihagyva (skipped)"]
     g1{"PM előszűrés<br/>determinisztikus, LLM előtt"}
     g2{"PM challenge<br/>LLM"}
     g3{"PM szabálykapu<br/>determinisztikus"}
@@ -562,12 +573,13 @@ flowchart LR
     r2["proposal_reject"]
     r3["order_reject"]
 
-    idea --> g1 -- tovább --> g2 -- BUY --> g3 -- order --> g4 -- rendben --> ib
+    idea --> g0 -- tovább --> g1 -- tovább --> g2 -- BUY --> g3 -- order --> g4 -- rendben --> ib
     review --> sell -- SELL order --> g4
+    g0 -- "érdemben elutasított papír cooldownban,<br/>revisit vagy új forrás nélkül" --> skip
     g1 -- "eszközosztály, nem bázisdeviza,<br/>már tartott pozíció" --> r1
     g2 -- "portfólió-illeszkedés (cash, ugyanaz a fogadás,<br/>bucket helye), gyenge tézis, hiányzó adat,<br/>15%-nál kisebb hozampotenciál" --> r1
     g3 -- "portfolio-rules.yaml: upside, pozíció-,<br/>szektor-, bucketlimit, szabad cash" --> r2
     g4 -- "nem paper számla, eltér a PM döntésétől,<br/>SELL több a tartottnál, nincs friss ár" --> r3
 ```
 
-Minden elutasítás indoklással kerül a döntési naplóba, és végleges (nincs visszadobási kör). A kézi ötlet ugyanazokon a kapukon megy át, ugyanazzal a mércével, mint a Research ötletei.
+Minden elutasítás indoklással kerül a döntési naplóba, és végleges (nincs visszadobási kör). A PM érdemi elutasítása cooldownt indít: ezalatt a Research csak azzal javasolhatja újra a papírt, hogy mi változott, az elutasítás utáni forrással; a kihagyott ötlet nem kerül a naplóba, csak a scan taszk eredményébe. A kézi ötlet a cooldown-szűrő kivételével ugyanazokon a kapukon megy át, ugyanazzal a mércével, mint a Research ötletei.

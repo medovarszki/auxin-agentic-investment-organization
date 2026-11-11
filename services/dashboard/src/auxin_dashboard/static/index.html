@@ -151,12 +151,29 @@
   .hbar .tr { background: var(--bg); border-radius: 3px; height: 8px; } .hbar .tr b { display: block; height: 8px; border-radius: 3px; background: var(--accent); opacity: .7; }
   .rec { display: grid; grid-template-columns: 82px 1fr auto; gap: 8px; font-size: 12px; padding: 3px 0; border-top: 1px solid var(--line); }
   .rec span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hbar.lim { grid-template-columns: minmax(90px, 34%) 1fr 92px; } .hbar.lim .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .hbar .tr b.warn { background: var(--warn); } .hbar .tr b.bad { background: var(--bad); }
+  .graph .node.plan rect { stroke-dasharray: 6 4; } .graph .unit { fill: none; stroke: var(--line); stroke-dasharray: 2 4; }
+  .ag.hl { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
+  .ag .kv { display: grid; grid-template-columns: 96px 1fr; gap: 4px 10px; font-size: 13px; margin: 2px 0; }
+  .ag .kv > span:nth-child(odd) { color: var(--muted); }
+  .skill { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; font-size: 12px; margin: 4px 0; }
+  .skill button { white-space: nowrap; }
+  .big { font-size: 20px; font-variant-numeric: tabular-nums; }
+  #doc-dlg { width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48px); }
+  .doc { font-size: 13px; } .doc h2, .doc h3, .doc h4, .doc h5 { font-size: 14px; margin: 14px 0 6px; }
+  .doc code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--bg);
+              padding: 0 3px; border-radius: 3px; }
+  .doc table { font-size: 12px; margin: 6px 0; } .doc ul, .doc ol { padding-left: 20px; margin: 6px 0; }
+  td.c { text-align: center; }
 </style>
 </head>
 <body>
 <header>
   <h1>Auxin</h1>
   <nav id="tabs">
+    <button data-tab="org">Szervezet</button>
+    <button data-tab="policy">Politika</button>
     <button data-tab="portfolio">Portfólió</button>
     <button data-tab="ideas">Ötletek</button>
     <button data-tab="flows">Folyamatok</button>
@@ -203,6 +220,12 @@
       <button type="submit" class="small primary" id="rev-send">Küldés a PM-nek</button>
     </div>
   </form>
+</dialog>
+<dialog id="doc-dlg">
+  <div class="actions" style="margin:0 0 4px;justify-content:space-between;align-items:baseline">
+    <h2 id="doc-title"></h2><button type="button" class="small" id="doc-close">Bezárás</button>
+  </div>
+  <div class="doc" id="doc-body"></div>
 </dialog>
 <main id="view"></main>
 <script>
@@ -558,7 +581,257 @@ function bindRows(rows, onclick) {
   $view.querySelectorAll("tr.click").forEach(tr => tr.addEventListener("click", () => onclick(rows[tr.dataset.i])));
 }
 
+// A small Markdown subset for the skills and role prompts: headings, lists, tables, **bold**, `code`.
+function md(src) {
+  const inline = s => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>");
+  const out = [];
+  let list = null, rows = null, para = [];
+  const flush = () => {
+    if (para.length) out.push(`<p>${inline(para.join(" "))}</p>`);
+    if (list) out.push(`<${list.tag}>${list.items.map(i => `<li>${inline(i)}</li>`).join("")}</${list.tag}>`);
+    if (rows) out.push(`<div class="wrap"><table><thead><tr>${rows[0].map(c => `<th>${inline(c)}</th>`).join("")}</tr></thead><tbody>${
+      rows.slice(1).map(r => `<tr>${r.map(c => `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+    para = []; list = null; rows = null;
+  };
+  for (const line of String(src || "").split("\n")) {
+    let m;
+    if ((m = line.match(/^(#{1,4})\s+(.*)/))) { flush(); out.push(`<h${m[1].length + 1}>${inline(m[2])}</h${m[1].length + 1}>`); }
+    else if (/^\s*\|/.test(line)) {
+      if (!rows) { flush(); rows = []; }
+      if (!/^\s*\|[\s:|-]+\|\s*$/.test(line)) rows.push(line.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim()));
+    } else if ((m = line.match(/^\s*(?:[-*]|(\d+)\.)\s+(.*)/))) {
+      const tag = m[1] ? "ol" : "ul";
+      if (!list || (list.tag !== tag && !/^\s/.test(line))) { flush(); list = {tag, items: []}; }
+      list.items.push(m[2]);
+    } else if (!line.trim()) flush();
+    else if (list && /^\s/.test(line)) list.items[list.items.length - 1] += " " + line.trim();
+    else { if (list || rows) flush(); para.push(line.trim()); }
+  }
+  flush();
+  return out.join("");
+}
+
+function showDoc(title, markdown) {
+  document.getElementById("doc-title").textContent = title;
+  document.getElementById("doc-body").innerHTML = md(markdown);
+  document.getElementById("doc-dlg").showModal();
+}
+
+const POS_NAME = {research: "Research", "portfolio-manager": "Portfolio Manager", execution: "Execution", human: "Ember (Mihály)"};
+const posName = id => POS_NAME[id] || id;
+const ACCESS = {none: "nincs", read: "olvas", read_write: "olvas és ír"};
+const RIGHT = {decides: ["dönt", "good"], proposes: ["javasol", ""], checks: ["ellenőriz", "warn"], executes: ["végrehajt", "good"]};
+const APPROVES = {skill_change: "skill", rule_change: "szabály", prompt_change: "prompt"};
+
+// Org chart: the reporting tree (human on top), then the planned units, dashed.
+function orgSvg(o) {
+  const positions = o.units.flatMap(u => u.positions.map(p => ({...p, unit: u})));
+  const kids = id => positions.filter(p => p.reports_to === id);
+  const NW = 196, NH = 56, GX = 24, GY = 44, pos = {};
+  let leaf = 0, depth = 0;
+  const place = (id, d) => {
+    const ch = kids(id).map(c => place(c.id, d + 1));
+    const x = ch.length ? (ch[0] + ch[ch.length - 1]) / 2 : leaf++;
+    pos[id] = {x, d};
+    depth = Math.max(depth, d);
+    return x;
+  };
+  place("human", 0);
+  const planned = o.units.filter(u => !u.positions.length);
+  const cols = Math.max(leaf, planned.length), W = cols * (NW + GX) + GX;
+  const X = x => GX + (x + (cols - leaf) / 2) * (NW + GX), Y = d => 16 + d * (NH + GY);
+  const box = (x, y, cls, attr, title, sub) => `<g class="node ${cls}" ${attr}><rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="8"></rect>
+    <text x="${x + NW / 2}" y="${y + 23}" text-anchor="middle" font-weight="600">${esc(title)}</text>
+    <text class="muted" x="${x + NW / 2}" y="${y + 41}" text-anchor="middle">${esc(sub)}</text></g>`;
+  let svg = "";
+  for (const p of positions) {
+    const a = pos[p.reports_to], b = pos[p.id];
+    if (!a || !b) continue;
+    const x1 = X(a.x) + NW / 2, y1 = Y(a.d) + NH, x2 = X(b.x) + NW / 2, y2 = Y(b.d), my = (y1 + y2) / 2;
+    svg += `<path class="edge" d="M${x2},${y2} V${my} H${x1} V${y1}"></path>`;
+  }
+  const act = o.units.filter(u => u.positions.length);
+  for (const u of act) {
+    const ps = u.positions.map(p => pos[p.id]).filter(Boolean);
+    const x0 = Math.min(...ps.map(p => X(p.x))) - 12, x1 = Math.max(...ps.map(p => X(p.x))) + NW + 12;
+    const y0 = Math.min(...ps.map(p => Y(p.d))) - 22, y1 = Math.max(...ps.map(p => Y(p.d))) + NH + 10;
+    svg += `<rect class="unit" x="${x0}" y="${y0}" width="${x1 - x0}" height="${y1 - y0}" rx="10"></rect>
+      <text class="muted" x="${x0 + 8}" y="${y0 + 14}">${esc(u.name)}</text>`;
+  }
+  svg += box(X(pos.human.x), Y(0), "", "", posName("human"),
+    `jóváhagy: ${(o.human.approves || []).map(a => APPROVES[a] || a).join(", ")}`);
+  for (const p of positions) {
+    const d = p.descriptor, llm = d.kind !== "deterministic";
+    svg += box(X(pos[p.id].x), Y(pos[p.id].d), "good", `data-pos="${esc(p.id)}"`, posName(p.id),
+      llm ? `LLM · ${d.model} · ${d.skills.length} skill` : "determinisztikus (nem AI)");
+  }
+  const py = Y(depth + 1) + 10;
+  if (planned.length) svg += `<text class="muted" x="${GX}" y="${py - 8}">Tervezett egységek (még nincs pozíciójuk)</text>`;
+  planned.forEach((u, i) => { svg += box(GX + i * (NW + GX), py, "plan", "", u.name, "tervezett"); });
+  const H = py + (planned.length ? NH + 12 : 0);
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Szervezeti ábra">${svg}</svg>`;
+}
+
+function positionCard(p) {
+  const d = p.descriptor, llm = d.kind !== "deterministic";
+  const tools = d.tools.allow, grp = (label, list) => list.length
+    ? `<span>${label}</span><span>${list.map(t => `<span class="tag mono">${esc(t)}</span>`).join("")}</span>` : "";
+  const mcp = prefix => tools.filter(t => t.startsWith(prefix)).map(t => t.slice(prefix.length));
+  const tags = list => list.map(t => `<span class="tag mono">${esc(t)}</span>`).join("") || "–";
+  return `<div class="ag" id="pos-${esc(p.id)}">
+    <h2>${esc(posName(p.id))} <span class="tag ${llm ? "good" : ""}">${llm ? `LLM · ${esc(d.model)}` : "determinisztikus"}</span>
+      <span class="muted" style="font-weight:400;font-size:13px">jelent: ${esc(posName(p.reports_to))}</span></h2>
+    <div>${esc(d.role)}</div>
+    <h3>Skillek (eljárásrendek) · kattints a teljes szövegért</h3>
+    ${p.skills.map((s, i) => `<div class="skill"><button class="small" data-skill="${esc(p.id)}/${i}">${esc(s.name)}</button>
+      <span class="muted">${esc(s.description)}</span></div>`).join("")
+      || `<p class="muted" style="margin:2px 0;font-size:12px">Nincs skillje: a szabályait kód hajtja végre.</p>`}
+    <h3>Eszközök</h3>
+    <div class="kv">${grp("Web", tools.filter(t => !t.startsWith("mcp__")))}${grp("IBKR (olvasás)", mcp("mcp__ibkr__"))}
+      ${grp("Tudásbázis", mcp("mcp__knowledge-base__").map(t => t === "*" ? "minden olvasó tool" : t))}
+      ${tools.length ? "" : `<span>–</span><span class="muted">Nincs LLM-tool: közvetlen REST a broker felé.</span>`}</div>
+    <h3>Üzenetek (A2A)</h3>
+    <div class="kv"><span>fogad</span><span>${tags(d.messages.consumes)}</span><span>küld</span><span>${tags(d.messages.produces)}</span></div>
+    <h3>Jogosultságok és korlátok</h3>
+    <div class="kv"><span>Broker (IBKR)</span><span class="${d.permissions.ibkr === "read_write" ? "warn" : ""}">${ACCESS[d.permissions.ibkr]}${d.permissions.ibkr === "read_write" ? " · megbízást adhat le" : ""}</span>
+      <span>Tudásbázis</span><span>${ACCESS[d.permissions.knowledge_base]}${llm ? " (a runtime ír a strukturált kimenetből)" : ""}</span>
+      <span>Internet</span><span>${(d.egress || []).length ? esc(d.egress.join(", ")) : llm ? "csak a Claude API, proxyn át" : "nincs"}</span>
+      ${(d.schedule || []).map(s => `<span>Ütemezés</span><span>${esc(s.name)} <span class="mono muted">${esc(s.cron)}</span></span>`).join("")}
+      <span>Limitek</span><span>${d.limits.max_concurrent_tasks} párhuzamos taszk${llm ? ` · ${d.limits.max_turns} LLM-kör / taszk` : ""}</span></div>
+    ${p.instructions ? `<h3>Munkaköri leírás és feladat-promptok</h3>
+      <button class="small" data-doc="${esc(p.id)}/role">Szerep-prompt (CLAUDE.md)</button>
+      ${Object.keys(p.prompts).map(k => `<button class="small" data-doc="${esc(p.id)}/${esc(k)}">feladat: ${esc(k)}</button>`).join(" ")}` : ""}
+  </div>`;
+}
+
+// One limit of the policy against the live portfolio: used % of NAV vs the limit.
+const limitBar = (label, used, limit) => `<div class="hbar lim"><span class="nm" title="${esc(label)}">${esc(label)}</span>
+  <span class="tr"><b class="${used > limit ? "bad" : used > limit * .8 ? "warn" : ""}" style="width:${Math.min(100, used / limit * 100)}%"></b></span>
+  <span class="num">${num(used, 1)} / ${num(limit, 0)}%</span></div>`;
+const none = text => `<p class="muted" style="margin:2px 0;font-size:12px">${text}</p>`;
+// Which control enforces a rejection: [gate, human-readable rule].
+const GATE = {idea_reject: "PM előszűrés (kód)", proposal_reject: "PM szabálykapu (kód)", order_reject: "Execution ellenőrzés (kód)"};
+const RULE_LABEL = {asset_class: "eszközosztály nem engedélyezett", currency: "nem a bázisdevizában jegyzett", already_held: "már a portfólióban van",
+  min_upside_pct: "kevés a hozampotenciál", conviction: "pozícióméret", cash: "nincs elég szabad cash", sector: "szektorlimit",
+  risk_bucket: "kockázati bucket limit", require_market_price: "nincs piaci ár", NO_PRICE: "nincs friss ár", MISMATCH: "eltér a PM döntésétől",
+  NOT_PAPER_ACCOUNT: "nem paper számla", BROKER_ERROR: "broker hiba"};
+
 const views = {
+  async org() {
+    const o = await api("/api/org");
+    const positions = o.units.flatMap(u => u.positions);
+    const dr = o.decision_rights || {actors: [], decisions: []};
+    const flows = {};
+    positions.forEach(p => {
+      p.descriptor.messages.produces.forEach(m => (flows[m] ??= {from: [], to: []}).from.push(p.id));
+      p.descriptor.messages.consumes.forEach(m => (flows[m] ??= {from: [], to: []}).to.push(p.id));
+    });
+    const who = (ids, empty) => ids.length ? ids.map(i => `<b>${esc(posName(i))}</b>`).join(", ") : `<span class="muted">${empty}</span>`;
+    $view.innerHTML = `<p class="lede">A szervezet úgy, ahogy le van írva: egységek, pozíciók, munkaköri leírások, skillek és döntési jogok.
+        <span class="muted">Forrás: <span class="mono">org/org.yaml</span>, <span class="mono">agents/&lt;név&gt;/agent.yaml</span>, <span class="mono">SKILL.md</span> –
+        ugyanazok a fájlok, amelyekből az agentek futnak. Módosítani csak emberi jóváhagyással lehet.</span></p>
+      <div class="graph"><div class="graph-bar muted">Szervezeti ábra és jelentési vonalak – kattints egy pozícióra a munkaköri leírásához</div>${orgSvg(o)}</div>
+      <h2>Pozíciók</h2><div class="ag-grid">${positions.map(positionCard).join("")}</div>
+      <h2>Döntési jogok</h2>
+      <p class="muted" style="margin:0 0 8px">Ki miben dönt. A „Szabálykapu” nem AI: a befektetési politikát kód kényszeríti ki a Portfolio Manager döntése után.</p>
+      ${table([{h: "Döntés", f: r => esc(r.name)}, ...dr.actors.map(a => ({h: a.name, f: r => {
+        const [label, cls] = RIGHT[r.rights[a.id]] || [];
+        return label ? `<span class="tag ${cls}">${label}</span>` : "";
+      }}))], dr.decisions)}
+      <h2>Hozzáférések</h2>
+      ${table([
+        {h: "Pozíció", f: p => `<b>${esc(posName(p.id))}</b>`},
+        {h: "Működés", f: p => p.descriptor.kind === "deterministic" ? "kód" : `LLM (${esc(p.descriptor.model)})`},
+        {h: "Broker: olvasás", f: p => p.descriptor.permissions.ibkr !== "none" ? "✓" : "–"},
+        {h: "Broker: megbízás", f: p => p.descriptor.permissions.ibkr === "read_write" ? `<span class="warn">✓ egyedül</span>` : "–"},
+        {h: "Tudásbázis", f: p => ACCESS[p.descriptor.permissions.knowledge_base]},
+        {h: "Webkeresés", f: p => p.descriptor.tools.allow.includes("WebSearch") ? "✓" : "–"},
+        {h: "Skillek", num: 1, f: p => p.skills.length},
+      ], positions)}
+      <h2>Átadások (üzenetek)</h2>
+      ${table([
+        {h: "Üzenet", f: ([m]) => `<span class="tag">${esc(m)}</span> <span class="muted">${esc(TRIGGERS[m] || KIND_LABEL[m] || "")}</span>`},
+        {h: "Küldi", f: ([, f]) => who(f.from, "scheduler / dashboard")},
+        {h: "Fogadja", f: ([, f]) => who(f.to, "döntési napló")},
+      ], Object.entries(flows).sort((a, b) => !a[1].from.length - !b[1].from.length))}`;
+    const byId = Object.fromEntries(positions.map(p => [p.id, p]));
+    $view.querySelectorAll("[data-pos]").forEach(g => g.addEventListener("click", () => {
+      const card = document.getElementById(`pos-${g.dataset.pos}`);
+      $view.querySelectorAll(".ag.hl").forEach(c => c.classList.remove("hl"));
+      card.classList.add("hl");
+      card.scrollIntoView({behavior: "smooth", block: "start"});
+    }));
+    $view.querySelectorAll("[data-skill]").forEach(b => b.addEventListener("click", () => {
+      const [id, i] = b.dataset.skill.split("/"), s = byId[id].skills[i];
+      showDoc(`${posName(id)} · skill: ${s.name}`, s.body);
+    }));
+    $view.querySelectorAll("[data-doc]").forEach(b => b.addEventListener("click", () => {
+      const [id, key] = b.dataset.doc.split("/"), p = byId[id];
+      showDoc(`${posName(id)} · ${key === "role" ? "szerep-prompt" : `feladat: ${key}`}`, key === "role" ? p.instructions : p.prompts[key]);
+    }));
+  },
+
+  async policy() {
+    const d = await api("/api/policy");
+    const r = d.rules, u = d.usage;
+    const rej = d.rejects.filter(x => x.rule);
+    const hits = (...rules) => {
+      const n = rej.filter(x => rules.includes(x.rule)).reduce((s, x) => s + Number(x.n), 0);
+      return `<h3>Kikényszerítés</h3><div style="font-size:12px">${n ? `<span class="tag warn">${n} elutasítás</span>` : `<span class="muted">eddig nem utasított el ötletet</span>`}`;
+    };
+    const card = (title, big, text, gate, rules, live) => `<div class="ag"><h2>${title}</h2>
+      ${big ? `<div class="big">${big}</div>` : ""}<div>${text}</div>${live || ""}
+      ${hits(...rules)} <span class="muted">· ellenőrzi: ${gate}</span></div></div>`;
+    const conv = Object.entries(r.position.conviction_weight_pct);
+    const convMax = Math.max(...conv.map(([, v]) => v));
+    const buckets = Object.entries(r.risk_bucket.buckets);
+    const unclassified = u ? u.holdings.filter(h => !h.risk_bucket) : [];
+    $view.innerHTML = `<p class="lede">Befektetési politika: a szabályok, amelyeket nem az AI-ra bízunk, hanem kód kényszerít ki.
+        <span class="muted">Forrás: <span class="mono">org/rules/portfolio-rules.yaml</span> · ${r.version}. verzió, hatályos ${esc(r.effective_from)} óta ·
+        módosítás csak emberi jóváhagyással.${u ? ` Kihasználtság az élő portfólióból (NAV ${num(u.nav, 0)} ${esc(u.currency)}).` : ""}</span></p>
+      ${d.error ? `<div class="err">Broker nem elérhető, a limitek kihasználtsága nem látszik: ${esc(d.error)}</div>` : ""}
+      <div class="ag-grid">
+      ${card("Univerzum", "", `${r.universe.asset_classes.map(a => `<span class="tag">${esc(a === "stock" ? "részvény" : a === "etf" ? "ETF" : a)}</span>`).join("")}
+          ${r.universe.long_only ? '<span class="tag">csak long, nincs short</span>' : ""} <span class="tag">csak a számla devizájában</span>
+          <span class="tag">meglévő pozíció nem növelhető</span>`, "PM előszűrés, még az LLM előtt", ["asset_class", "currency", "already_held"])}
+      ${card("Belépési küszöb", `≥ ${num(r.entry.min_upside_pct, 0)}% hozampotenciál`, "(célár − piaci ár) / piaci ár, a döntés pillanatában.",
+          "PM szabálykapu", ["min_upside_pct"])}
+      ${card("Méretezés a meggyőződés szerint", "", "A PM csak a conviction-t (1–5) adja meg; a darabszámot a kód számolja.", "PM szabálykapu", ["conviction"],
+          `<h3>Conviction → új pozíció cél-súlya (NAV %)</h3>${conv.map(([c, v]) => `<div class="hbar lim"><span class="nm">conviction ${esc(c)}</span>
+            <span class="tr"><b style="width:${v / convMax * 100}%"></b></span><span class="num">${num(v, 0)}%</span></div>`).join("")}`)}
+      ${card("Pozíciólimit", `≤ ${num(r.position.max_new_position_weight_pct, 0)}% NAV / új pozíció`, "Részvényre és ETF-re egyaránt.", "PM szabálykapu", [],
+          u ? `<h3>Nyitott pozíciók súlya</h3>${u.holdings.map(h => limitBar(h.symbol, h.weight_pct, r.position.max_new_position_weight_pct)).join("") || none("Nincs nyitott pozíció.")}` : "")}
+      ${card("Szektorlimit", `≤ ${num(r.sector.max_sector_weight_pct, 0)}% NAV / iparág`, "IBKR iparági besorolás; csak részvényekre, az ETF-ek nem számítanak bele.",
+          "PM szabálykapu", ["sector"],
+          u ? `<h3>Iparágak súlya</h3>${u.sectors.map(s => limitBar(s.name, s.weight_pct, r.sector.max_sector_weight_pct)).join("") || none("Nincs részvénypozíció.")}` : "")}
+      ${card("Kockázati bucketek", "≤ 25% NAV / bucket".replace("25", num(Math.max(...buckets.map(([, b]) => b.max_weight_pct)), 0)),
+          "A besorolás a PM ítélete (skill: risk-bucket), a limitet a kód ellenőrzi.", "PM szabálykapu", ["risk_bucket"],
+          `<h3>Bucketek ${u ? "kihasználtsága" : ""}</h3>${buckets.map(([b, def]) => limitBar(`${b} · ${def.name}`, u ? u.buckets[b] || 0 : 0, def.max_weight_pct)).join("")}
+          ${unclassified.length ? none(`Besorolás nélkül (a szabály előtt vett, nem számít bele): ${unclassified.map(h => esc(h.symbol)).join(", ")}`) : ""}`)}
+      ${card("Cash és tőkeáttétel", u ? `${num(u.cash_pct, 1)}% szabad cash` : "", "Vétel csak szabad cashből, tőkeáttétel nélkül; a cash a puffer.", "PM szabálykapu", ["cash"])}
+      ${card("Megbízás és jóváhagyás", "", `<span class="tag">${esc(r.orders.default_type)} megbízás, DAY</span>
+          <span class="tag">${r.approvals.paper_account_only ? "csak paper számla" : "éles számla is"}</span>
+          <span class="tag ${r.approvals.human_approval_before_every_order ? "good" : "warn"}">emberi jóváhagyás megbízás előtt: ${r.approvals.human_approval_before_every_order ? "kötelező" : "nincs (demo)"}</span>
+          <span class="tag">taszk-timeout ${esc(r.orders.task_timeout_minutes)} perc</span>
+          <span class="tag">${r.orders.automatic_retry ? "automatikus újrapróbálás" : "nincs újrapróbálás"}</span>
+          <span class="tag">${r.rejections.max_rounds_per_item ? `${r.rejections.max_rounds_per_item} visszadobási kör` : "az elutasítás végleges"}</span>`,
+          "Execution, a leadás előtt", ["require_market_price", "NO_PRICE", "MISMATCH", "NOT_PAPER_ACCOUNT", "BROKER_ERROR"])}
+      ${r.rejections.revisit ? card("Újrajavaslás", `${num(r.rejections.revisit.cooldown_days, 0)} nap cooldown`,
+          `Érdemi elutasítás után az instrumentum csak azzal jöhet újra, hogy mi változott, legalább
+          ${num(r.rejections.revisit.min_new_sources, 0)} az elutasítás utáni forrással. Ismételt elutasításnál
+          (${num(r.rejections.revisit.repeat_rejections, 0)}× ${num(r.rejections.revisit.repeat_cooldown_days, 0)} napon belül)
+          ${num(r.rejections.revisit.repeat_cooldown_days, 0)} nap és ${num(r.rejections.revisit.repeat_min_new_sources, 0)} új forrás kell.
+          A szabálykapu és a csak adathiány miatti elutasítás nem indít cooldownt.`, "Research runtime, a PM előtt", []) : ""}
+      </div>
+      <h2>Elutasítások ellenőrzési pont és ok szerint</h2>
+      ${table([
+        {h: "Ellenőrzési pont", f: x => esc(x.rule ? GATE[x.kind] : x.kind === "idea_reject" ? "PM challenge (LLM ítélet)" : GATE[x.kind])},
+        {h: "Ok", f: x => x.rule ? `${esc(RULE_LABEL[x.rule] || x.rule)} <span class="mono muted">${esc(x.rule)}</span>` : `<span class="muted">egyedi indoklás a döntési naplóban</span>`},
+        {h: "Darab", num: 1, f: x => esc(x.n)},
+      ], d.rejects)}
+      <p class="muted"><a href="#decisions?kind=idea_reject">Elutasított ötletek a döntési naplóban →</a></p>`;
+  },
+
   async portfolio() {
     const p = await api("/api/portfolio");
     const a = p.account || {};
@@ -974,6 +1247,7 @@ document.getElementById("idea-add").addEventListener("click", () => { $ideaMsg.t
 document.getElementById("idea-cancel").addEventListener("click", () => $ideaDlg.close());
 $ideaForm.addEventListener("submit", sendIdea);
 document.getElementById("rev-cancel").addEventListener("click", () => $revDlg.close());
+document.getElementById("doc-close").addEventListener("click", () => document.getElementById("doc-dlg").close());
 $revForm.elements.recommendation.addEventListener("change", syncReview);
 $revForm.addEventListener("submit", sendReview);
 window.addEventListener("hashchange", render);

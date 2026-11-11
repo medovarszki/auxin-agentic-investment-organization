@@ -34,7 +34,7 @@ Az `INPUT_REQUIRED` és `AUTH_REQUIRED` állapotot nem használjuk (nincs emberi
 
 ## Visszadobási körök
 
-Ugyanarra a tételre (ötlet, javaslat) legfeljebb **2** visszadobás jöhet; a 2. után a tétel lezárul, és csak új információval (új ötletként) kerülhet újra sorra.
+Nincs visszadobási kör: az elutasítás végleges, a tétel (ötlet, javaslat) lezárul, és csak új információval, új ötletként kerülhet újra sorra.
 
 ## Domain-életciklus
 
