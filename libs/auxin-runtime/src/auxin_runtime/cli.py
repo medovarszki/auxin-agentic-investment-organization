@@ -47,12 +47,13 @@ def _serve(agent_dir: Path) -> int:
 def _trigger(recipient: str, message_type: str, payload: dict) -> int:
     tracing.setup("operator")
     flow_id = str(uuid.uuid4())
+    focus = f", bucket {payload['risk_bucket']}" if "risk_bucket" in payload else ""
     task = asyncio.run(
         send(
             sender="operator",
             recipient=recipient,
             type=MessageType(message_type),
-            subject=f"{message_type} (manual)",
+            subject=f"{message_type} (manual{focus})",
             payload=payload,
             task_id=flow_id,
             correlation_id=flow_id,

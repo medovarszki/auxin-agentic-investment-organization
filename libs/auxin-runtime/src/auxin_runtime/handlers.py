@@ -67,6 +67,41 @@ def _cooldown_note(cooldowns: dict[int, Cooldown]) -> str:
     )
 
 
+def _bucket_definitions(agent_dir: Path) -> str:
+    """The bucket table and its rules: the `## Buckets` section of the PM's risk-bucket skill (the one yardstick),
+    copied into the Research image as risk-buckets.md."""
+    text = Path(os.environ.get("AUXIN_RISK_BUCKETS_FILE", agent_dir / "risk-buckets.md")).read_text()
+    section = text.split("## Buckets", 1)[1]
+    return section.split("\n## ", 1)[0].strip()
+
+
+def scan_bucket(payload: dict, rules: dict) -> int | None:
+    """The scan's optional risk-bucket focus (`risk_bucket` in the scan_trigger payload): one of the rule file's
+    buckets, or None for an unfocused scan."""
+    bucket = payload.get("risk_bucket")
+    if bucket is None:
+        return None
+    if isinstance(bucket, bool) or not isinstance(bucket, int) or bucket not in rules["risk_bucket"]["buckets"]:
+        raise Rejected(f"risk_bucket must be one of {sorted(rules['risk_bucket']['buckets'])}, got {bucket!r}")
+    return bucket
+
+
+def bucket_focus_note(bucket: int | None, rules: dict, definitions: str) -> str:
+    """The focus block appended to the scan prompt when the scan was started for one risk bucket."""
+    if bucket is None:
+        return ""
+    name = rules["risk_bucket"]["buckets"][bucket]["name"]
+    return (
+        f"\n\n## Risk-bucket focus: bucket {bucket} ({name})\n"
+        f"This scan looks for candidates in risk bucket {bucket} only. The market view stays a full market view; "
+        f"only the ideas are focused. Propose only instruments that, by the definitions below, belong in bucket "
+        f"{bucket}; when an instrument sits on the border, the riskier bucket counts, so leave it out if that is not "
+        f"{bucket}. Name the bucket and the one or two facts that put the instrument there in the rationale. "
+        f"Fewer ideas, or none, is better than an idea from another bucket. The Portfolio Manager classifies every "
+        f"idea again with the same definitions.\n\n{definitions}\n"
+    )
+
+
 async def _llm(desc: AgentDescriptor, prompt: str, options, model, msg: Incoming):
     record = await run_task(desc.name, prompt, options, model, task_id=msg.task_id, trace_id=msg.meta.trace_id)
     if record.state is not TaskState.COMPLETED:
@@ -112,8 +147,10 @@ def research(desc: AgentDescriptor, agent_dir: Path) -> Handler:
         """The scan; an idea for an instrument in cooldown without a valid `revisit` is dropped (not recorded, listed
         under `skipped`); every other idea is recorded in the decision log before it goes to the PM."""
         trigger = msg.payload.get("trigger", "scan")
+        bucket = scan_bucket(msg.payload, rules)
         cooldowns = await _cooldowns(rules)
-        prompt = (agent_dir / "prompts" / f"{trigger}.md").read_text() + _cooldown_note(cooldowns)
+        prompt = ((agent_dir / "prompts" / f"{trigger}.md").read_text() + _cooldown_note(cooldowns)
+                  + (bucket_focus_note(bucket, rules, _bucket_definitions(agent_dir)) if bucket else ""))
         record = await run_task(desc.name, prompt, scan_options, MarketScanResult, task_id=msg.task_id,
                                 trace_id=msg.meta.trace_id)
         if record.state is not TaskState.COMPLETED:
@@ -139,7 +176,7 @@ def research(desc: AgentDescriptor, agent_dir: Path) -> Handler:
                 correlation_id=msg.meta.correlation_id, trace_id=msg.meta.trace_id, reference_task_ids=[msg.task_id],
             )
             handoffs.append({"symbol": idea.instrument.symbol, **task_summary(task)})
-        return {"scan": record.output, "cost_usd": record.cost_usd, "num_turns": record.num_turns,
+        return {"scan": record.output, "risk_bucket": bucket, "cost_usd": record.cost_usd, "num_turns": record.num_turns,
                 "tokens": token_usage(record.usage),
                 "handoffs": handoffs, "skipped": skipped}
 

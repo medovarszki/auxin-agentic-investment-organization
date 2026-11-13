@@ -102,6 +102,8 @@
                 padding: 8px; border-radius: 6px; }
   h2 { font-size: 15px; margin: 20px 0 8px; }
   .filters { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  #scan-bucket { font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px;
+                 background: var(--panel); color: var(--text); }
   .filters input, .filters select { font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px;
                                     background: var(--panel); color: var(--text); }
   a { color: var(--accent); }
@@ -182,6 +184,9 @@
     <button data-tab="tasks">Taszkok</button>
     <button data-tab="outcomes">Eredmények</button>
   </nav>
+  <select id="scan-bucket" class="small" title="Melyik kockázati bucketből keressen jelölteket a Research">
+    <option value="">bármelyik bucket</option><option value="1">1 · stabil</option><option value="2">2 · mérsékelt</option>
+    <option value="3">3 · növekedési</option><option value="4">4 · spekulatív</option></select>
   <button id="scan" class="small primary">▶ Ötletgenerálás</button>
   <button id="review" class="small primary">🔍 Minden pozíció review</button>
   <button id="idea-add" class="small primary">＋ Saját ötlet</button>
@@ -422,6 +427,8 @@ const TRIGGERS = {
 };
 function triggerLabel(r) {
   const type = TRIGGERS[r.trigger] || r.trigger || "ismeretlen";
+  const bucket = /, bucket (\d)\)/.exec(r.trigger_subject || "");
+  if (bucket) return {label: `${type} · bucket ${bucket[1]}`, by: r.sender === "operator" ? "kézi, CLI (make)" : "kézi, dashboard"};
   if (r.sender === "scheduler") return {label: type, by: "ütemezett"};
   if (r.sender === "operator") return {label: type, by: "kézi, CLI (make)"};
   if (r.sender === "dashboard") {
@@ -480,11 +487,12 @@ async function startFlow(url, question, running) {
   alert(`Nem indult el: ${d.message || d || r.status}`);
 }
 
-const startScan = () => startFlow("/api/scan",
-  "Indítsak most egy ötletgenerálást (scan) a PAPER számlán?\n\n" +
+const startScan = () => { const b = document.getElementById("scan-bucket").value; return startFlow(
+  `/api/scan${b ? `?risk_bucket=${b}` : ""}`,
+  `Indítsak most egy ötletgenerálást (scan) a PAPER számlán${b ? `, csak a ${b}. kockázati bucketből` : ""}?\n\n` +
   "Végigmegy a teljes vételi folyamaton: Research → Portfolio Manager → szabálykapu → Execution. " +
   "Ebből valódi paper megbízás és kötés lehet; zárt piacnál a megbízás függő marad. " +
-  "Egy scan néhány perc, LLM-költsége nagyjából $1–3.", "Már fut egy scan, megnyitom.");
+  "Egy scan néhány perc, LLM-költsége nagyjából $1–3.", "Már fut egy scan, megnyitom."); };
 const startReview = () => startFlow("/api/review",
   "Indítsam most MINDEN nyitott pozíció review-ját a PAPER számlán?\n\n" +
   "A Portfolio Manager előbb elküldi a függő megbízásokat, majd minden nyitott pozíciót átad a Research-nek. " +

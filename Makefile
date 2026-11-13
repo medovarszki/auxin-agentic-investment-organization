@@ -28,8 +28,8 @@ ibkr-up:         ## the ibkrfacade stack (gateway, Redis, facade), built from it
 ibkr-down:
 	$(IBKR) down
 
-scan: up         ## A2A scan_trigger to Research (Market & Sentiment); follows the task, prints the result JSON
-	$(COMPOSE) run --rm operator trigger --to research
+scan: up         ## A2A scan_trigger to Research (Market & Sentiment); follows the task, prints the result JSON. Optional: bucket=1..4 (ideas from that risk bucket only)
+	$(COMPOSE) run --rm operator trigger --to research $(if $(bucket),--payload '{"risk_bucket": $(bucket)}')
 
 tasks:           ## the shared task table: who did what, in which state, in which flow
 	$(PSQL) "SELECT last_updated, owner AS agent, metadata->>'sender' AS sender, metadata->>'type' AS type, \

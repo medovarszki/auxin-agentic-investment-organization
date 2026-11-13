@@ -81,7 +81,7 @@ Az emberi beavatkozás lehetőségei (mind csak a demo számlán):
 
 | Gomb | Mit csinál |
 |---|---|
-| **▶ Ötletgenerálás** | azonnal elindít egy reggeli piacátnézést, nem kell 9:00-ig várni |
+| **▶ Ötletgenerálás** | azonnal elindít egy reggeli piacátnézést, nem kell 9:00-ig várni; mellette választható, melyik kockázati kategóriából (stabil, mérsékelt, növekedési, spekulatív) keressen ötletet |
 | **＋ Saját ötlet** | ember is beadhat ötletet; a PM ugyanazzal a szigorral vizsgálja, mint a Research ötleteit |
 | **🔍 Minden pozíció review** / pozíciónként **🔍 Review** | azonnal újraértékelteti az összes vagy egy kiválasztott pozíciót |
 | **Kézi döntés** | ember dönthet egy pozíció csökkentéséről vagy zárásáról, indoklással; a méretezést és a végrehajtást ugyanúgy a szervezet végzi |
@@ -145,6 +145,7 @@ Kézi indítás és ellenőrzés:
 
 ```
 make scan                  # egy napi scan (vételi hurok); ugyanez a dashboardon: ▶ Ötletgenerálás, élő nézettel
+make scan bucket=3         # scan egy kockázati bucketre fókuszálva (1 stabil … 4 spekulatív): csak onnan jön ötlet
 make review                # napi review (függő megbízások, pozíciónkénti újraértékelés, eladás)
 make run-job job=evaluate  # egy scheduler-job most (scan | review | evaluate)
 make execute-pending       # zárt piac miatt függő megbízások leadása
@@ -167,7 +168,7 @@ make egress-test           # example.com tiltva, api.anthropic.com átmegy
 
 **Portfólió.** A portfólió élőben, az IBKR-ből: NAV, cash, pozíciók, súly, P&L és az utolsó review. Pozíciónként két művelet érhető el. A **🔍 Review** egyetlen pozíciót értékeltet újra (`review_trigger` `conid`-dal, függő megbízások nélkül). A **Kézi döntés** REDUCE (célsúllyal) vagy CLOSE döntést rögzít indoklással: `review`-ként, `Kézi` szereppel kerül a döntési naplóba, majd `review_result`-ként megy a PM-nek, aki LLM nélkül, a szokásos determinisztikus méretezéssel ad `SELL` megbízást az Executionnek. A lezárás után a `make run-job job=evaluate` csinál belőle tanulságot.
 
-**Indítás.** A **▶ Ötletgenerálás** egy `scan_trigger`-t küld a Researchnek. A **🔍 Minden pozíció review** egy `review_trigger`-t küld a PM-nek: ez a napi review azonnal, vagyis a függő megbízások, majd minden nyitott pozícióra Research-review, és REDUCE / CLOSE esetén SELL. A **＋ Saját ötlet** kézi ötletet ad be (ticker és tézis, opcionálisan háttér): a dashboard feloldja IBKR conidra, `Kézi` szereppel a döntési naplóba írja, majd `idea`-ként a PM-nek küldi, aki ugyanúgy challenge-eli, mint a Research ötleteit. Minden indítás csak PAPER számlán működik, és egyszerre csak egy folyamat futhat.
+**Indítás.** A **▶ Ötletgenerálás** egy `scan_trigger`-t küld a Researchnek; a mellette lévő választóval (`POST /api/scan?risk_bucket=N`) a scan egy kockázati bucketre fókuszál. A **🔍 Minden pozíció review** egy `review_trigger`-t küld a PM-nek: ez a napi review azonnal, vagyis a függő megbízások, majd minden nyitott pozícióra Research-review, és REDUCE / CLOSE esetén SELL. A **＋ Saját ötlet** kézi ötletet ad be (ticker és tézis, opcionálisan háttér): a dashboard feloldja IBKR conidra, `Kézi` szereppel a döntési naplóba írja, majd `idea`-ként a PM-nek küldi, aki ugyanúgy challenge-eli, mint a Research ötleteit. Minden indítás csak PAPER számlán működik, és egyszerre csak egy folyamat futhat.
 
 **Élő nézet.** Felül a pipeline-sáv (Research → PM → Execution) mutatja, ki dolgozik, ki adta át a munkát és vár, ki végzett; az éleken az átadott ötletek és megbízások látszanak, aktív átadásnál animálva. Alatta agentenként követhető, mit csinál éppen az LLM: keresések, tool-hívások és eredményeik, köztes szöveg és összefoglalt gondolatmenet (az `agent_activity` táblából). Mellette a döntések szerepkör-sávos gráfon jelennek meg, ahogy születnek.
 
@@ -213,7 +214,7 @@ flowchart LR
 
     subgraph agents["agents hálózat (internal, nincs internet)"]
         scheduler["scheduler<br/>APScheduler"]
-        operator["operator<br/>(make scan / review)"]
+        operator["operator<br/>(make scan [bucket=N] / review)"]
         research["Research<br/>LLM"]
         pm["Portfolio Manager<br/>LLM + szabálykapu"]
         exec["Execution<br/>determinisztikus"]
@@ -277,7 +278,10 @@ sequenceDiagram
     participant KB as knowledge
     participant IB as IBKR (facade)
 
-    S->>R: scan_trigger
+    S->>R: scan_trigger (kézi indításnál opcionálisan risk_bucket 1–4)
+    opt bucket-fókusz
+        R->>R: a runtime a promptba teszi a bucket definícióját (a PM risk-bucket skilljéből): csak abból a bucketből jöhet ötlet
+    end
     R->>R: hírek, indexek, narratíva (WebSearch, IBKR MCP)
     R->>IB: pozíciók, árak, hírek (IBKR MCP)
     R->>KB: cooldownban lévő papírok (a runtime a promptba teszi), cégtörténet (MCP)
@@ -463,6 +467,7 @@ classDiagram
         felelős: napi pozíció-újraértékelés HOLD / REDUCE / CLOSE
         felelős: tanulság a lezárt pozíciókból
         kihagyja: már tartott; cooldownban lévőt csak revisit-tel javasol
+        fókusz: opcionális risk_bucket a scan_trigger-ben, csak abból a bucketből javasol
         nem: challenge, célár, méretezés, megbízás
         skill: market-scan
         skill: narrative-and-sentiment
@@ -512,7 +517,7 @@ classDiagram
         <<service>>
         kézi ötlet → idea
         kézi review → review_result
-        scan és review indítása
+        scan (opcionálisan egy bucketre) és review indítása
     }
 
     class Knowledge {
@@ -529,7 +534,7 @@ classDiagram
 
     Scheduler ..> Research : scan_trigger, decision_outcome
     Scheduler ..> PortfolioManager : review_trigger
-    Dashboard ..> Research : scan_trigger
+    Dashboard ..> Research : scan_trigger (risk_bucket?)
     Dashboard ..> PortfolioManager : idea, review_trigger, review_result
     Research --> PortfolioManager : idea, review_result
     PortfolioManager --> Research : review_request
@@ -547,7 +552,7 @@ A Research 2026-10-26 óta egy agent a korábbi Market & Sentimenttel, és ugyan
 - Belépés: legalább 15% hozampotenciál a célárig.
 - Méret conviction szerint: 1–5 → 2 / 4 / 6 / 8 / 10% NAV (`position.conviction_weight_pct` a szabályfájlban); új pozíció ≤ 10% NAV.
 - Szektor ≤ 25% NAV (IBKR `industry`, csak részvények; az ETF-ekre szektorlimit nincs).
-- Kockázati bucket ≤ 25% NAV bucketenként (részvény és ETF): 1 stabil, 2 mérsékelt, 3 növekedési, 4 spekulatív; a besorolás a PM ítélete, a vételi orderrel a naplóba kerül; a szabály előtt vett pozíció nem számít bele.
+- Kockázati bucket ≤ 25% NAV bucketenként (részvény és ETF): 1 stabil, 2 mérsékelt, 3 növekedési, 4 spekulatív; a besorolás a PM ítélete, a vételi orderrel a naplóba kerül; a szabály előtt vett pozíció nem számít bele. A kézi scan egy bucketre fókuszálhat (`scan_trigger` payload `risk_bucket`, `make scan bucket=N`, dashboard-választó): a Research ilyenkor csak az abba illő jelöltet javasol, ugyanazzal a definícióval, mint a PM (`risk-bucket` skill `## Buckets` része, a Research image-be másolva); a piaci összkép nem szűkül, és a végleges besorolást továbbra is a PM adja.
 - Csak szabad cash, nincs tőkeáttétel; market order, DAY; csak paper (`DU…`) számla.
 - Review: minden nyitott pozíció minden nap; CLOSE = a teljes pozíció, REDUCE = lefelé kerekítve (jelenlegi súly − cél-súly) × NAV / ár, legalább 1 db. Nincs veszteség-trigger és stop-loss.
 - Feedback: lezárt egy pozíció, ha az eladások kiadják a vett mennyiséget; hozam = (bevétel − költség − jutalék) / költség, benchmark nélkül. Szabály-, skill- vagy promptmódosítást csak Mihály hagy jóvá.
@@ -559,7 +564,7 @@ A Research 2026-10-26 óta egy agent a korábbi Market & Sentimenttel, és ugyan
 
 ```mermaid
 flowchart LR
-    idea(["ötlet<br/>Research vagy kézi"])
+    idea(["ötlet<br/>Research (scan, opcionálisan bucket-fókusszal) vagy kézi"])
     review(["review: REDUCE / CLOSE<br/>Research vagy kézi"])
     g0{"cooldown-szűrő<br/>Research runtime, determinisztikus"}
     skip["kihagyva (skipped)"]

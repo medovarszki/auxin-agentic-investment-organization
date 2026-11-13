@@ -357,14 +357,17 @@ def _start_flow(name: str, flow_id: str, trace_id: str, **message) -> None:
 
 
 @app.post("/api/scan", status_code=202)
-async def start_scan() -> dict:
-    """scan_trigger -> Research (the buy flow), on a PAPER account, one at a time."""
+async def start_scan(risk_bucket: Literal[1, 2, 3, 4] | None = None) -> dict:
+    """scan_trigger -> Research (the buy flow), on a PAPER account, one at a time. With `risk_bucket`: Research
+    proposes ideas from that risk bucket only (the market view stays unfocused)."""
     account = await _paper_account()
     await _require_idle("scan_trigger")
     flow_id, trace_id = str(uuid.uuid4()), new_trace_id()
+    payload = {"risk_bucket": risk_bucket} if risk_bucket else {}
     _start_flow("scan", flow_id, trace_id, recipient="research", type=MessageType.SCAN_TRIGGER,
-                subject="scan_trigger (dashboard)", payload={})
-    log.info(json.dumps({"event": "scan_started", "trace_id": trace_id, "account": account.get("account")}))
+                subject=f"scan_trigger (dashboard{f', bucket {risk_bucket}' if risk_bucket else ''})", payload=payload)
+    log.info(json.dumps({"event": "scan_started", "trace_id": trace_id, "account": account.get("account"),
+                         "risk_bucket": risk_bucket}))
     return {"trace_id": trace_id}
 
 

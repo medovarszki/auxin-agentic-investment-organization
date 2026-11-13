@@ -9,6 +9,8 @@ COPY agents/research/agent.yaml agents/research/CLAUDE.md /agent/
 COPY agents/research/prompts /agent/prompts
 COPY agents/research/skills /agent/.claude/skills
 COPY org/rules/portfolio-rules.yaml /agent/portfolio-rules.yaml
+# The risk-bucket definitions for a bucket-focused scan: the PM's skill is the one yardstick (its `## Buckets` section).
+COPY agents/portfolio-manager/skills/risk-bucket/SKILL.md /agent/risk-buckets.md
 USER agent
 
 CMD ["serve"]

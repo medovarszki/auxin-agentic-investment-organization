@@ -49,6 +49,16 @@ Before you finalize the list:
 4. Optional: `mcp__knowledge-base__get_company_history` or `mcp__knowledge-base__search` to see what the fund
    already concluded about an instrument or theme.
 
+## Risk-bucket focus
+
+A scan can be started for one risk bucket (1 stable, 2 moderate, 3 growth, 4 speculative); the task prompt then ends
+with a "Risk-bucket focus" section that holds the bucket definitions. In that case:
+- The market view and narratives stay unfocused; only the ideas are limited to the bucket.
+- Propose only instruments that belong in that bucket by the definitions; on the border the riskier bucket counts.
+- The "Avoid" list above still applies: bucket 4 means small or early-stage companies, not micro-caps or illiquid
+  listings.
+- Name the bucket and the one or two deciding facts in the rationale. Zero ideas is a valid answer.
+
 At most 3 ideas per scan.
 
 For each idea give: `thesis` (one sentence), `rationale` (why now, what could go wrong), and at least one dated source. The Portfolio Manager challenges every idea against the portfolio, so be honest about weak points.
