@@ -15,7 +15,8 @@ SKILL = ROOT / "agents/portfolio-manager/skills/risk-bucket/SKILL.md"
 def test_bucket_is_optional_and_validated():
     assert scan_bucket({}, RULES) is None
     assert scan_bucket({"risk_bucket": 3}, RULES) == 3
-    for bad in (0, 5, "3", True, 2.0):
+    assert scan_bucket({"risk_bucket": 1.0}, RULES) == 1  # A2A delivers numbers as floats
+    for bad in (0, 5, "3", True, 2.5, 5.0):
         with pytest.raises(Rejected):
             scan_bucket({"risk_bucket": bad}, RULES)
 

@@ -81,6 +81,8 @@ def scan_bucket(payload: dict, rules: dict) -> int | None:
     bucket = payload.get("risk_bucket")
     if bucket is None:
         return None
+    if isinstance(bucket, float) and bucket.is_integer():
+        bucket = int(bucket)  # the A2A payload (protobuf Struct) carries every number as a float
     if isinstance(bucket, bool) or not isinstance(bucket, int) or bucket not in rules["risk_bucket"]["buckets"]:
         raise Rejected(f"risk_bucket must be one of {sorted(rules['risk_bucket']['buckets'])}, got {bucket!r}")
     return bucket
