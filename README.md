@@ -1,16 +1,30 @@
-# AI ágensekből álló virtuális befektetéskezelő MVP
+Az Auxin egy **virtuális portfoliokezelő szetvezet, amelyben minden munkatársat egy agent reprezentál**. A projekt célja, nem egy automatizált kereskedési rendszer, hanem egy virtuális szervezet létrehozása volt: pozíciók munkaköri leírással (skillek), írott szabályok, ellenőrzési pontok és közös emlékezet, ahogy egy valódi cégnél.
 
-Az Auxin egy **virtuális befektetéskezelő, amelyben minden munkatárs egy AI-ágens**. Nem egy kereskedő robot, hanem egy kis szervezet: vannak pozíciói, munkaköri leírásai, írott szabályai, ellenőrzési pontjai és közös emlékezete, pontosan úgy, mint egy valódi cégnek.
+A kérdés, amire gyakorlati választ keres: **hogyan modellezhetők a szervezeti funkciók AI-ágensekkel?** Egy szervezet értékét a szakértők együttműködése adja; ha a folyamatai végponttól végpontig le vannak írva, ágensekkel gyorsan újraépíthető. A befektetési terület jó próbapálya: szigorúan szabályozott, a döntések mérhetők, és világos, ki mit hagyhat jóvá.
 
-A projekt egy kérdésre keres gyakorlati választ: **hogyan modellezhetőek a szervezeti funkciók AI-ágensekkel?** Minden szervezet egyénekből áll, akiknek skilljeik (szaktudásuk) vannak, és az értéket az együttműködésük adja. Ha egy szervezet folyamatait végponttól végpontig leírjuk, ágensekkel gyorsan újramodellezhető. A befektetési terület azért jó példa, mert szigorúan szabályozott, a döntések mérhetők, és világos, ki mit hagyhat jóvá. Maga a terület csak illusztráció: ugyanígy leírható lenne egy compliance-, riporting- vagy backoffice-funkció is.
+A hagyományos szervezetek belső súrlódásai (hatásköri viták, elveszett tudás, hosszú jóváhagyási láncok) technikai kérdéssé egyszerűsödnek: az átadás egy üzenet, a hatáskör le van írva, a szabály kódban fut, a tudás a naplóban marad. Az ágensek is hibáznak, de a hibáik láthatók és javíthatók.
 
-> **Biztonság:** az Auxin egy Interactive Brokers **paper (demo) számlán** kereskedik, valódi pénz nincs benne. Ez egy működő MVP (minimális, de valóban működő első verzió), nem befektetési tanácsadás.
+**[Vezetői összefoglaló](https://claude.ai/artifact/Y4VsYs6N4nfZ2NCP38nKbY)**
 
-Vezetői összefoglaló diákon: [MVP vezetői összefoglaló](https://claude.ai/artifact/Y4VsYs6N4nfZ2NCP38nKbY).
+> **Fontos:** Ez egy MVP (minimális funkcionalitással, de valóban működő verzió). Csak kísérleti célokat szolgál, anyagi profitszerzés semmilyen formában nem célja.
 
-## Röviden: hogyan működik?
+## Portfolio
 
-Három „munkatárs” dolgozik együtt, egy futószalag mentén:
+Egy portfóliót jelenleg **egyetlen értékpapírszámla reprezentál**: amit a szervezet kezel, az pontosan annak az egy számlának a tartalma (pozíciók, szabad cash, NAV). A portfóliónak nincs külön, a rendszerben vezetett másolata. A számla az igazságforrás, a pozíciókat és a számlaadatokat a rendszer mindig élőben kérdezi le a brokertől.
+
+A rendszer jelenleg az **Interactive Brokers (IBKR)** értékpapírszámláival köthető össze, az [ibkrfacade](https://github.com/medovarszki/ibkrfacade) szolgáltatáson keresztül. Az ibkrfacade egy külön projekt, amely REST felületet ad az IB Gateway fölé, és ott van a paper/live védelem és az idempotens megbízás-leadás is. Az AI-ágensek csak olvasni tudják a számlát (instrumentumkeresés, árfolyam, pozíciók, számlaadatok). Megbízást kizárólag az Execution adhat le. Alapértelmezés szerint a rendszer IBKR paper (demo, `DU…`) számlán fut.
+
+**Saját számla bekötése.** Számlaazonosítót sehol nem kell megadni: azt a számlát kezeli a rendszer, amelyikre az IB Gateway bejelentkezik. A beállítás az ibkrfacade checkoutjának `.env` fájljában van (minta: az ibkrfacade `.env.example`-je), az Auxin `.env`-jébe nem kerül broker-adat:
+
+- `TWS_USERID`, `TWS_PASSWORD`: a saját IBKR **paper** felhasználód belépési adatai (a paper usernek saját felhasználóneve van, ezt az IBKR Client Portalon találod).
+- `TRADING_MODE=paper`: maradjon így. Élő számlán az ibkrfacade (`IBKR_ALLOW_LIVE=false`) és az Execution (`DU…` ellenőrzés) is visszautasítja a megbízást.
+- `IBKR_SECURITY_ENABLED=false`: az Auxin egyelőre token nélkül hívja az ibkrfacade-et, ezért ezt ki kell kapcsolni (a facade csak a belső `ibkr-backend` hálózaton érhető el).
+- `REDIS_PASSWORD`: tetszőleges, hosszú véletlen érték.
+- `IBKR_MARKET_DATA_TYPE`: `1` élő árfolyam, `3` késleltetett, ha a paper számlán nincs piaci adat előfizetés.
+
+Ha az ibkrfacade checkout nem a repó mellett (`../ibkrfacade`) van, az útvonalat az `IBKRFACADE_DIR` adja meg: `make IBKRFACADE_DIR=<útvonal> up`. A bekötést a `make ibkr-check` ellenőrzi: megmutatja a számla összesítőjét és egy árfolyamot, megbízást nem ad le.
+
+## Szervezeti áttekintés
 
 ```mermaid
 flowchart LR
@@ -22,50 +36,30 @@ flowchart LR
     N -. "tanulságok" .-> R
 ```
 
-| Munkatárs | Kicsoda | Mit csinál | Mit nem tehet |
-|---|---|---|---|
-| **Research** (elemző) | AI-ágens (Claude Sonnet 5.5) | Minden munkanap reggel átnézi a piacot: híreket, jegybanki döntéseket, makroadatokat, gyorsjelentéseket, a piaci hangulatot és a domináns narratívákat. Naponta legfeljebb 3 befektetési ötletet ad, datált, ellenőrzött forrásokkal. Délután újraértékeli a nyitott pozíciókat (tartás, csökkentés vagy zárás), és a lezárt ügyletekből tanulságot ír. | Nem dönt, nem ad célárat, nem kereskedhet. |
-| **Portfolio Manager** (portfóliókezelő) | AI-ágens (Claude Opus 5.5) + kódba írt szabálykapu | Minden ötletet a portfólió ismeretében megtámad: belefér-e (van-e szabad pénz, nem duplázza-e meg ugyanazt a fogadást, van-e hely az adott kockázati kategóriában), és csak utána kutat. Dönt: **vétel** saját javaslattal (célár, időtáv, kockázatok, források, meggyőződés 1–5) vagy **elutasítás** indoklással. | A pozíció méretét és a kemény szabályokat nem ő, hanem a kód állapítja meg; megbízást nem ad le közvetlenül. |
-| **Execution** (kereskedő) | Hagyományos program, nem AI | Ellenőrzi a megbízást (demo számla-e, egyezik-e a PM döntésével, van-e friss ár), és leadja a brokernél, csak kereskedési időben. | Az egyetlen, aki kereskedhet; önálló döntése nincs. |
+| Agent | Kicsoda | Mit csinál |
+|---|---|---|
+| **Research** | AI-ágens (Claude Sonnet 5.5) | Minden futtatáskor (`scan`) átnézi a piacot: híreket, jegybanki döntéseket, makroadatokat, gyorsjelentéseket, a piaci hangulatot és a domináns narratívákat. Naponta legfeljebb 3 befektetési ötletet küld a PM-nek, datált, ellenőrzött forrásokkal. Délután, a napi felülvizsgálatkor egyenként újraértékeli az összes nyitott pozíciót (tartás, csökkentés vagy zárás); csökkentés vagy zárás esetén eladási megbízás születik. A kiértékeléskor a lezárt pozíciók tényleges hozamából (ezt a rendszer számolja ki) tanulságot ír, amelyet a következő döntéseinél figyelembe vesz. |
+| **Portfolio Manager** | AI-ágens (Claude Opus 5.5) + kódba írt szabálykapu | Minden ötletet a portfólió ismeretében megtámad: belefér-e (van-e szabad pénz, nem duplázza-e meg ugyanazt a fogadást, van-e hely az adott kockázati kategóriában), és csak utána kutat. Dönt: **vétel** saját javaslattal (célár, időtáv, kockázatok, források, meggyőződés 1–5) vagy **elutasítás** indoklással. Amit elfogad, abból a kód megbízást méretez. |
+| **Execution** | Determinisztikus program, nem AI | Ellenőrzi a megbízást (demo számla-e, egyezik-e a PM döntésével, van-e friss ár), és leadja a brokernél, csak kereskedési időben: zárt piacnál a megbízás függőben marad, és a napi felülvizsgálat elején megy ki. |
 
 Szándékosan **két különböző AI-modell** dolgozik a két ágensben: így az ötletet más „gondolkodásmód” vizsgálja felül, mint amelyik kitalálta.
 
-### Egy munkanap
+### Szabályok ("befektetési politika")
 
-| Időpont | Mi történik |
-|---|---|
-| **09:00** | A Research átnézi a piacot, és legfeljebb 3 ötletet küld. A PM mindegyiket megvizsgálja; amit elfogad, abból a kód megbízást méretez, az Execution leadja (zárt piacnál a délutáni körig vár). |
-| **15:30** | Napi felülvizsgálat: a függőben maradt megbízások kimennek, majd a Research egyenként újraértékeli az összes nyitott pozíciót. Csökkentés vagy zárás esetén eladási megbízás születik. |
-| **21:00** | Kiértékelés: a lezárt pozíciók tényleges hozamát a rendszer kiszámolja, a Research pedig tanulságot ír belőle, amit a következő döntéseinél figyelembe vesz. |
-
-### A szabályok, amelyekhez mindenki tartja magát
-
-- Csak részvények és ETF-ek, csak vétel és eladás (nincs short, nincs tőkeáttétel), egyelőre dollárban jegyzett papírok.
-- Új pozíció csak akkor, ha legalább **15% hozampotenciál** van a célárig.
-- A pozíció mérete a meggyőződéstől függ: 1–5-ös skálán a portfólió 2–10%-a.
-- Egy iparágba legfeljebb a portfólió 25%-a, és a négy kockázati kategória (stabil, mérsékelt, növekedési, spekulatív) mindegyikébe szintén legfeljebb 25% kerülhet.
-- Egy érdemben elutasított papír 30 napig (ismételt elutasítás után 60 napig) csak akkor jöhet újra, ha a Research megmutatja, mi változott azóta, az elutasítás utáni forrással. Így egy hirtelen fordulat után másnap is visszajöhet, de változatlan piacon nem ismétlődik naponta ugyanaz az ötlet.
-- Minden döntés indoklással együtt a közös naplóba kerül; szabályt, eljárást vagy ágens-utasítást csak ember (Mihály) módosíthat.
+- Univerzum: globális részvények és ETF-ek, csak vétel és eladás (long only), horizont: hetektől kb. egy évig. MVP-korlát: csak a számla bázisdevizájában (USD) jegyzett instrumentum (US listing, ADR, US-ETF); nem-US cégnél ADR, nincs FX-átváltás.
+- Belépés: új pozíció csak akkor, ha legalább **15% hozampotenciál** van a célárig.
+- Méret a meggyőződés (conviction) szerint: 1–5 → 2 / 4 / 6 / 8 / 10% NAV (`position.conviction_weight_pct` a szabályfájlban); új pozíció ≤ 10% NAV; meglévő pozíció nem növelhető (MVP-korlát).
+- Szektor (iparág) ≤ 25% NAV (IBKR `industry`, csak részvények; az ETF-ekre szektorlimit nincs).
+- Kockázati bucket ≤ 25% NAV bucketenként (részvény és ETF): 1 stabil, 2 mérsékelt, 3 növekedési, 4 spekulatív; a besorolás a PM ítélete, a vételi orderrel a naplóba kerül; a szabály előtt vett pozíció nem számít bele. A kézi scan egy bucketre fókuszálhat (`scan_trigger` payload `risk_bucket`, `make scan bucket=N`, dashboard-választó): a Research ilyenkor csak az abba illő jelöltet javasol, ugyanazzal a definícióval, mint a PM (`risk-bucket` skill `## Buckets` része, a Research image-be másolva); a piaci összkép nem szűkül, és a végleges besorolást továbbra is a PM adja.
+- Megbízás: csak szabad cash, nincs tőkeáttétel; market order, DAY; csak paper (`DU…`) számla. Megbízás előtt nincs emberi jóváhagyás (tech demo, paper számla); élő számlánál újra kötelező.
+- Review: minden nyitott pozíció minden nap; CLOSE = a teljes pozíció, REDUCE = lefelé kerekítve (jelenlegi súly − cél-súly) × NAV / ár, legalább 1 db. Nincs veszteség-trigger és stop-loss.
+- Újrajavaslás (`rejections.revisit`): nincs visszadobási kör, a PM elutasítása végleges, a papír csak új ötletként jöhet újra. Az érdemi elutasítás (`reject_basis: thesis`) 30 napos cooldownt indít az instrumentumra; 60 napon belüli második elutasítás után 60 nap. Cooldownban a Research csak `revisit` blokkal javasolhatja újra (a legutóbbi elutasított ötlet id-ja, mi változott, legalább 1, ismételtnél 2 forrás az elutasítás napja utánról); ennek hiányában a runtime a PM előtt kiszűri (a scan artifactjában `skipped`). Így egy hirtelen fordulat után másnap is visszajöhet, de változatlan piacon nem ismétlődik naponta ugyanaz az ötlet. A PM megkapja az előző elutasítást (`prior_rejection`: ok, `reconsider_if`). Nem indít cooldownt: a determinisztikus előszűrés és a csak adathiány miatti elutasítás (`reject_basis: data`, pl. nincs élő ár). A kézi ötletre a szűrő nem vonatkozik, de a PM azt is az előző elutasításhoz méri.
+- Feedback: lezárt egy pozíció, ha az eladások kiadják a vett mennyiséget; hozam = (bevétel − költség − jutalék) / költség, benchmark nélkül.
+- Napló és változtatás: minden döntés indoklással együtt a közös naplóba kerül; szabályt, eljárást, skillt vagy ágens-utasítást (promptot) egyelőre csak ember módosíthat, Mihály jóváhagyásával.
 
 Ezeket a szabályokat nem az AI-ra bízzuk, hanem **kód kényszeríti ki**: ha egy döntés sértené valamelyiket, nem lesz belőle megbízás.
 
-### Mi teszi „szervezetté”?
-
-Minden szervezeti fogalomnak van ágenses megfelelője:
-
-| Szervezetben | Az Auxinban |
-|---|---|
-| munkatárs, pozíció | egy ágens egy szerepben (Research, Portfolio Manager, Execution) |
-| munkaköri leírás | szerepenkénti leíró: mi a dolga, és ami legalább ilyen fontos, mi **nem** |
-| eljárásrend, szaktudás | „skillek”: szövegesen leírt eljárások, amelyek szerint az ágens dolgozik |
-| folyamat, átadás | üzenet két ágens között: ötlet → javaslat → döntés → megbízás |
-| jogosultságok | ki mihez fér hozzá: csak az Execution kereskedhet, az AI-ágensek csak olvasnak |
-| szervezeti emlékezet | közös döntési napló és tudásbázis, tanulságokkal |
-| belső ellenőrzés | ellenőrzési pontok: előszűrés, a PM kritikája, szabálykapu, végrehajtás előtti ellenőrzés |
-
-Emiatt egy szervezetet nem szoftverként, hanem szervezetként lehet megtervezni, és utána futtatni. A hagyományos szervezetek drága belső súrlódásai (hatásköri viták, elveszett tudás, hosszú jóváhagyási láncok) itt technikai kérdésekké válnak: az átadás egy üzenet, a hatáskör le van írva, a szabály kódban fut, a tudás a naplóban marad. Az ágenseknek is vannak hibái, de ezek láthatók és javíthatók.
-
-### Mit lát az, aki ránéz? (dashboard)
+### Felületek
 
 A böngészőben futó irányítópulton bárki követheti a szervezet működését:
 
@@ -86,31 +80,9 @@ Az emberi beavatkozás lehetőségei (mind csak a demo számlán):
 | **🔍 Minden pozíció review** / pozíciónként **🔍 Review** | azonnal újraértékelteti az összes vagy egy kiválasztott pozíciót |
 | **Kézi döntés** | ember dönthet egy pozíció csökkentéséről vagy zárásáról, indoklással; a méretezést és a végrehajtást ugyanúgy a szervezet végzi |
 
-### Hol tart a projekt?
-
-**Működik** a teljes befektetési ciklus a demo számlán: ötlet → kritika → döntés → végrehajtás → napi felülvizsgálat → eladás → kiértékelés és tanulság, valamint az irányítópult élő követéssel és emberi beavatkozással.
-
-**Tudatos MVP-korlátok:** csak dolláros papírok (külföldi cégnél amerikai letéti jegy), meglévő pozíció nem növelhető, egy elutasított ötletet nem lehet átdolgozva visszaküldeni (újra csak új ötletként jöhet, a cooldown-szabály szerint), nincs automatikus veszteség-limit (stop-loss), és megbízás előtt nincs emberi jóváhagyás (ez éles számlánál kötelező lenne).
-
-**Ami egy valódi alapkezelőben még kellene,** és ugyanígy, szabályokkal és skillekkel leírható: kockázatkezelés, compliance, szabályozói jelentések, backoffice, NAV-számítás, ügyfélriporting, treasury, vállalati események kezelése, belső audit.
-
-### Rövid szótár
-
-| Kifejezés | Jelentése |
-|---|---|
-| ágens (agent) | AI-modellre épülő program, amely egy szerepet tölt be, eszközöket használ és önállóan old meg egy feladatot |
-| LLM | nagy nyelvi modell; itt az Anthropic Claude modelljei adják az ágensek „háttértudását” |
-| skill | szövegesen leírt eljárás, amely szerint az ágens egy feladatot elvégez |
-| paper számla | demo brókerszámla, valós piaci árakkal, de virtuális pénzzel |
-| NAV | a portfólió teljes értéke |
-| review | egy nyitott pozíció újraértékelése: tartás (HOLD), csökkentés (REDUCE) vagy zárás (CLOSE) |
-| conviction | meggyőződés egy ötletben, 1–5-ös skálán; ez határozza meg a pozíció méretét |
-
 ---
 
 # Technikai leírás
-
-Az alábbi rész fejlesztőknek szól.
 
 - A szerepeket Claude-alapú LLM-agentek (Research: Sonnet 5.5, Portfolio Manager: Opus 5.5) és determinisztikus szolgáltatások töltik be.
 - Minden szerep külön Docker containerben fut.
@@ -319,7 +291,7 @@ sequenceDiagram
     end
 ```
 
-### Felülvizsgálat és eladás (munkanapokon 15:30)
+### Felülvizsgálat és eladás
 
 ```mermaid
 sequenceDiagram
@@ -377,7 +349,7 @@ sequenceDiagram
     Note over PM,E: a lezárás után a 21:00-s (vagy kézi) evaluate<br/>decision_outcome-ot és tanulságot csinál
 ```
 
-### Feedback (munkanapokon 21:00)
+### Feedback loop
 
 ```mermaid
 sequenceDiagram
@@ -543,22 +515,6 @@ classDiagram
     PortfolioManager ..> Knowledge : olvas (a runtime ír)
     Execution ..> Knowledge : ír (order, fill)
 ```
-
-A Research 2026-10-26 óta egy agent a korábbi Market & Sentimenttel, és ugyanettől a naptól a PM challenge-eli az ötleteket. A méretezés és a szabályellenőrzés a PM runtime-jában fut, nem az LLM-ben (zárt piacnál az utolsó záróárral).
-
-### Befektetési szabályok (röviden)
-
-- Univerzum: globális részvények és ETF-ek, long only, egyelőre USD-ben jegyzett instrumentumokon át (US listing, ADR, US-ETF); horizont: hetektől kb. egy évig.
-- Belépés: legalább 15% hozampotenciál a célárig.
-- Méret conviction szerint: 1–5 → 2 / 4 / 6 / 8 / 10% NAV (`position.conviction_weight_pct` a szabályfájlban); új pozíció ≤ 10% NAV.
-- Szektor ≤ 25% NAV (IBKR `industry`, csak részvények; az ETF-ekre szektorlimit nincs).
-- Kockázati bucket ≤ 25% NAV bucketenként (részvény és ETF): 1 stabil, 2 mérsékelt, 3 növekedési, 4 spekulatív; a besorolás a PM ítélete, a vételi orderrel a naplóba kerül; a szabály előtt vett pozíció nem számít bele. A kézi scan egy bucketre fókuszálhat (`scan_trigger` payload `risk_bucket`, `make scan bucket=N`, dashboard-választó): a Research ilyenkor csak az abba illő jelöltet javasol, ugyanazzal a definícióval, mint a PM (`risk-bucket` skill `## Buckets` része, a Research image-be másolva); a piaci összkép nem szűkül, és a végleges besorolást továbbra is a PM adja.
-- Csak szabad cash, nincs tőkeáttétel; market order, DAY; csak paper (`DU…`) számla.
-- Review: minden nyitott pozíció minden nap; CLOSE = a teljes pozíció, REDUCE = lefelé kerekítve (jelenlegi súly − cél-súly) × NAV / ár, legalább 1 db. Nincs veszteség-trigger és stop-loss.
-- Feedback: lezárt egy pozíció, ha az eladások kiadják a vett mennyiséget; hozam = (bevétel − költség − jutalék) / költség, benchmark nélkül. Szabály-, skill- vagy promptmódosítást csak Mihály hagy jóvá.
-- Újrajavaslás (`rejections.revisit`): a PM érdemi elutasítása (`reject_basis: thesis`) 30 napos cooldownt indít az instrumentumra; 60 napon belüli második elutasítás után 60 nap. Cooldownban a Research csak `revisit` blokkal javasolhatja újra (a legutóbbi elutasított ötlet id-ja, mi változott, legalább 1, ismételtnél 2 forrás az elutasítás napja utánról); ennek hiányában a runtime a PM előtt kiszűri (a scan artifactjában `skipped`). A PM megkapja az előző elutasítást (`prior_rejection`: ok, `reconsider_if`). Nem indít cooldownt: a determinisztikus előszűrés és a csak adathiány miatti elutasítás (`reject_basis: data`, pl. nincs élő ár). A kézi ötletre a szűrő nem vonatkozik, de a PM azt is az előző elutasításhoz méri.
-- MVP-korlátok: csak a számla bázisdevizájában (USD) jegyzett instrumentum, nem-US cégnél ADR (nincs FX-átváltás), meglévő pozíció nem növelhető, nincs visszadobási kör (az elutasítás végleges, újra csak új ötletként, a cooldown szerint).
-- Megbízás előtt nincs emberi jóváhagyás (tech demo, paper számla); élő számlánál újra kötelező.
 
 ### Ellenőrzési pontok
 
